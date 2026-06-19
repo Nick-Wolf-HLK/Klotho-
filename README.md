@@ -169,23 +169,25 @@ gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
 ausführen. Ballast (`venv*`, `node_modules`, `dist`, `__pycache__`, …) ist für
 die Werkzeuge unsichtbar.
 
+**Managed Memory — beliebig viele Dateien:** Klothos Agent behält nicht alle
+gelesenen Dateien im Kontext. Nach jedem `read_file` notiert das Modell seine
+Befunde, und der **rohe Dateiinhalt wird nach wenigen Schritten aus dem Kontext
+entfernt** (nur die jüngsten `KEEP_RAW_RESULTS=6` bleiben voll). Die Notizen
+bleiben. So läuft das Kontextfenster **nicht** voll — ein einzelner Agent kann
+*hunderte* Dateien durchgehen. Nur Zeit und Tokens begrenzen, nicht der Kontext.
+
 **Gründlichkeit (`[agent] max_iterations`, Standard 60):** So viele Werkzeug-
 Runden darf jeder Subagent machen. Höher = mehr Dateien gelesen = gründlicher,
-aber langsamer und mehr Tokens. Jeder Report endet mit einer Fußzeile, wie viele
-Dateien gelesen wurden und ob das Limit erreicht war:
+aber langsamer. Dank Managed Memory kannst du das für riesige Repos bedenkenlos
+hochsetzen (z. B. **150–300**). Jeder Report endet mit einer Fußzeile:
 
 ```
-_Untersucht: 38 Dateien gelesen, 55 Werkzeug-Aufrufe in 412s._
+_Untersucht: 80 Dateien gelesen, 120 Werkzeug-Aufrufe in 640s._
 ```
 
-Für sehr große Repos (hunderte Dateien) das Limit hochsetzen (z. B. 100–150) —
-ein einzelner Agent kann aus Kontext-/Zeitgründen nicht *jede* Datei lesen, aber
-die vier Subagenten decken zusammen ein breites Spektrum ab.
-
-So skaliert das auch für große Repos: Statt alles einzuspeisen, holt sich jeder
-Agent nur die Dateien, die er für die Aufgabe braucht. (Die einfachere
-„Code-Einspeisung" als Bibliotheksfunktion existiert weiterhin in
-`klotho/codebase.py` für kleine Repos.)
+Statt alles einzuspeisen, holt sich jeder Agent gezielt die Dateien, die er
+braucht. (Die einfachere „Code-Einspeisung" existiert weiterhin als
+Bibliotheksfunktion in `klotho/codebase.py` für kleine Repos.)
 
 ## Token-Kompression (TSCG-inspiriert)
 
