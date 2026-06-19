@@ -1,0 +1,29 @@
+[orchestrator]
+model = "glm-5.2:cloud"
+base_url = "http://127.0.0.1:11434/v1"
+
+[judge]
+model = "gpt-oss:20b"
+
+[[subagents]]
+name = "minimax"
+model = "minimax-m2.7:cloud"
+order = 1
+
+[[subagents]]
+name = "nemotron"
+model = "nemotron-3-super:cloud"
+order = 2
+
+[[subagents]]
+name = "qwen"
+model = "qwen3.5:27b"
+order = 3
+
+[execution]
+root_lock = "."
+log_file = "~/.klotho/log.jsonl"
+dry_run_default = false
+
+[rubric]
+criteria = ["completeness", "feasibility", "originality", "depth"]

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtuelle Umgebung
+.venv/
+venv/
+
+# Test / Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Laufzeit-Logs von Klotho
+.klotho/
+
+# OS
+.DS_Store
