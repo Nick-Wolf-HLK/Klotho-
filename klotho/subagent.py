@@ -52,11 +52,29 @@ async def run_subagent(
         else:
             result = await coro
         elapsed = int((time.perf_counter() - start) * 1000)
+        if not (result.text or "").strip():
+            # Leere Antwort (häufig Timeout/Überlastung) NICHT als gültig durchreichen
+            return SubagentResponse(
+                agent=sub.name,
+                model=sub.model,
+                response="",
+                elapsed_ms=elapsed,
+                error="leere Antwort vom Modell (evtl. Timeout/Überlastung)",
+            )
         return SubagentResponse(
             agent=sub.name,
             model=sub.model,
             response=result.text,
             elapsed_ms=elapsed,
+        )
+    except asyncio.TimeoutError:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return SubagentResponse(
+            agent=sub.name,
+            model=sub.model,
+            response="",
+            elapsed_ms=elapsed,
+            error=f"Timeout nach {elapsed} ms",
         )
     except Exception as exc:
         elapsed = int((time.perf_counter() - start) * 1000)

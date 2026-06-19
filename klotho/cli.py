@@ -168,6 +168,15 @@ def main(
         from .interactive import start_interactive
         start_interactive()
         return
+    # Typer mit positionalem callback-Argument schluckt Subcommand-Namen als
+    # 'prompt'. Wenn der 'prompt' exakt ein bekannter Subcommand ist (und keine
+    # weiteren Pipeline-Flags gesetzt sind), an diesen delegieren.
+    if prompt == "models":
+        models_cmd()
+        return
+    if prompt == "config":
+        config_cmd(config=config)
+        return
     cfg = _load(config)
     plan_only_mode = plan_only or (not execute and not dry_run)
     _run_pipeline(

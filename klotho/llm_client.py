@@ -23,7 +23,7 @@ class LLMClient:
         self,
         base_url: str = "http://127.0.0.1:11434/v1",
         *,
-        timeout: float = 180.0,
+        timeout: float = 300.0,
         api_key: str = "ollama",
     ) -> None:
         self.base_url = base_url.rstrip("/")
