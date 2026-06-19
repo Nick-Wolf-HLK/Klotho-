@@ -141,6 +141,31 @@ level = "safe"          # off | safe | aggressive
 
 Run `klotho config` to set roles interactively (uses `questionary`).
 
+## Code-Einspeisung (echte Code-Analyse)
+
+Standardmäßig *planen* die Subagenten nur — sie sehen deinen Code nicht. Mit
+**Code-Einspeisung** liest Klotho einen Ordner ein und gibt den Quellcode den
+Subagenten als Kontext, sodass sie **echten** Code analysieren (z. B. Bugreport,
+Review).
+
+```bash
+klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
+```
+
+Im interaktiven Modus fragt Klotho nach dem Thema nach einem Ordner.
+
+Klotho **filtert automatisch Ballast** (`venv*`, `node_modules`, `dist`,
+`build`, `site-packages`, `__pycache__`, `.git`, Binär-/Riesendateien) — so
+bleibt selbst in einem 6,5-GB-Repo nur der echte Quellcode übrig. Der wird
+(TSCG-)komprimiert und bis zu einem **Token-Budget** (`[context] budget`,
+Standard 60 000) eingespeist; kleine Dateien zuerst für maximale Abdeckung.
+Klotho zeigt transparent, wie viele Dateien eingespeist bzw. wegen Budget
+weggelassen wurden.
+
+> Für sehr große Repos: Budget erhöhen oder den Ordner enger fassen (z. B. nur
+> `backend/app` statt das ganze Repo). Eine vollständige Analyse eines
+> Millionen-Zeilen-Repos in einem Durchlauf ist mit keinem LLM möglich.
+
 ## Token-Kompression (TSCG-inspiriert)
 
 Judge *und* Synthesizer bekommen **alle** Subagenten-Antworten in den Prompt —

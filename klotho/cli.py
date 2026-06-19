@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from . import compress, ui
+from . import codebase, compress, ui
 from .config import (
     DEFAULT_CONFIG_PATH,
     OrchestratorConfig,
@@ -33,6 +33,22 @@ def _load(path: Path) -> OrchestratorConfig:
     return load_config(path)
 
 
+def _load_context(path: Optional[str], cfg: OrchestratorConfig) -> Optional[str]:
+    """Scannt einen Quellcode-Ordner und baut den eingespeisten Kontext."""
+    if not path:
+        return None
+    root = Path(path).expanduser()
+    if not root.is_dir():
+        ui.error(f"Context path not found: {root}")
+        raise typer.Exit(1)
+    ui.info(f"Scanning {root} for source code (ballast like venv/node_modules filtered)…")
+    context, res = codebase.build_context(
+        root, budget_tokens=cfg.context_budget, level=cfg.compression
+    )
+    ui.show_context_stats(res)
+    return context or None
+
+
 def _run_pipeline(
     cfg: OrchestratorConfig,
     prompt: str,
@@ -40,6 +56,7 @@ def _run_pipeline(
     plan_only: bool,
     dry_run: bool,
     refine: bool,
+    context: Optional[str] = None,
 ) -> None:
     client = LLMClient(base_url=cfg.base_url)
     subagents = cfg.subagents
@@ -72,7 +89,9 @@ def _run_pipeline(
 
     ui.info(f"Dispatching to {len(subagents)} subagents in parallel…")
     responses = asyncio.run(
-        run_subagents_parallel(client, subagents, prompt, refine_prompt=refine_prompt)
+        run_subagents_parallel(
+            client, subagents, prompt, refine_prompt=refine_prompt, context=context
+        )
     )
     ui.show_subagent_responses(responses)
 
@@ -137,8 +156,11 @@ def main(
     refine: bool = typer.Option(
         False, "--refine", help="Let orchestrator LLM refine the prompt first."
     ),
+    context: Optional[str] = typer.Option(
+        None, "--context", help="Folder whose source code is fed to the subagents."
+    ),
 ) -> None:
-    """Multi-LLM Orchestrator: dispatch a prompt, judge responses, synthesize a plan."""
+    """Klotho: dispatch a prompt, judge responses, synthesize a plan."""
     if ctx.invoked_subcommand is not None:
         return
     # No prompt given → launch interactive REPL mode
@@ -149,7 +171,8 @@ def main(
     cfg = _load(config)
     plan_only_mode = plan_only or (not execute and not dry_run)
     _run_pipeline(
-        cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine
+        cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine,
+        context=_load_context(context, cfg),
     )
 
 
@@ -171,12 +194,16 @@ def run(
     refine: bool = typer.Option(
         False, "--refine", help="Let orchestrator LLM refine the prompt first."
     ),
+    context: Optional[str] = typer.Option(
+        None, "--context", help="Folder whose source code is fed to the subagents."
+    ),
 ) -> None:
     """Dispatch PROMPT to subagents, judge, synthesize and (optionally) execute."""
     cfg = _load(config)
     plan_only_mode = plan_only or (not execute and not dry_run)
     _run_pipeline(
-        cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine
+        cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine,
+        context=_load_context(context, cfg),
     )
 
 

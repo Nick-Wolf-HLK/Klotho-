@@ -61,6 +61,20 @@ def klotho_say(msg: str) -> None:
     console.print(f"[bold cyan]◈ Klotho[/] [dim]·[/] {msg}")
 
 
+def show_context_stats(res) -> None:
+    """Transparenz über eingespeisten Code (eingespeist/weggelassen/Tokens)."""
+    msg = (
+        f"[bold cyan]◈ Codebase[/] [dim]·[/] {len(res.collected)}/{res.total_source} "
+        f"Quelldateien eingespeist [dim]·[/] ~{res.tokens} tok"
+    )
+    if res.truncated:
+        msg += (
+            f" [dim]·[/] [yellow]{res.skipped} wegen Budget weggelassen[/] "
+            f"[dim](Budget erhöhen oder Ordner eingrenzen für mehr Abdeckung)[/]"
+        )
+    console.print(msg)
+
+
 def show_compression_stats(stats) -> None:
     """Token-Ersparnis der TSCG-inspirierten Kompression (falls aktiv)."""
     if getattr(stats, "level", "off") == "off" or stats.before <= 0:

@@ -32,3 +32,9 @@ criteria = ["completeness", "feasibility", "originality", "depth"]
 # TSCG-inspirierte Token-Kompression der Subagenten-Antworten (Judge + Synthese).
 # off | safe (verlustarm) | aggressive (kürzt sehr lange Antworten)
 level = "safe"
+
+[context]
+# Token-Budget für eingespeisten Quellcode (Code-Einspeisung).
+# Klotho filtert Ballast (venv, node_modules, dist, …) und speist Quellcode
+# bis zu diesem Budget ein (kleine Dateien zuerst).
+budget = 60000

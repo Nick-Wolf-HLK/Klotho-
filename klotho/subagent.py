@@ -16,6 +16,14 @@ SUBAGENT_SYSTEM = (
     "and complete. Avoid filler. Use markdown headings if helpful."
 )
 
+SUBAGENT_SYSTEM_WITH_CODE = (
+    "You are a senior software analysis subagent. The relevant source code is "
+    "embedded in the user prompt under '=== CODEBASE ==='. You have NO file "
+    "system access and need NO tools — analyse ONLY the embedded code. Be "
+    "concrete: reference exact file paths and (where visible) line context. "
+    "Avoid filler. Use markdown headings."
+)
+
 
 async def run_subagent(
     client: LLMClient,
@@ -23,11 +31,17 @@ async def run_subagent(
     prompt: str,
     *,
     refine_prompt: Optional[str] = None,
+    context: Optional[str] = None,
     timeout: Optional[float] = None,
 ) -> SubagentResponse:
     final_prompt = refine_prompt or prompt
+    if context:
+        system = SUBAGENT_SYSTEM_WITH_CODE
+        final_prompt = f"{final_prompt}\n\n=== CODEBASE ===\n{context}"
+    else:
+        system = SUBAGENT_SYSTEM
     messages = [
-        {"role": "system", "content": SUBAGENT_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": final_prompt},
     ]
     start = time.perf_counter()
@@ -61,10 +75,14 @@ async def run_subagents_parallel(
     prompt: str,
     *,
     refine_prompt: Optional[str] = None,
+    context: Optional[str] = None,
     timeout: Optional[float] = None,
 ) -> list[SubagentResponse]:
     tasks = [
-        run_subagent(client, sub, prompt, refine_prompt=refine_prompt, timeout=timeout)
+        run_subagent(
+            client, sub, prompt,
+            refine_prompt=refine_prompt, context=context, timeout=timeout,
+        )
         for sub in sorted(subagents, key=lambda s: s.order)
     ]
     return await asyncio.gather(*tasks)
