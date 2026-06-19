@@ -33,20 +33,17 @@ def _load(path: Path) -> OrchestratorConfig:
     return load_config(path)
 
 
-def _load_context(path: Optional[str], cfg: OrchestratorConfig) -> Optional[str]:
-    """Scannt einen Quellcode-Ordner und baut den eingespeisten Kontext."""
+def _resolve_root(path: Optional[str]) -> Optional[str]:
+    """Validiert einen Projektordner; die Subagenten durchsuchen ihn agentisch."""
     if not path:
         return None
     root = Path(path).expanduser()
     if not root.is_dir():
-        ui.error(f"Context path not found: {root}")
+        ui.error(f"Project path not found: {root}")
         raise typer.Exit(1)
-    ui.info(f"Scanning {root} for source code (ballast like venv/node_modules filtered)…")
-    context, res = codebase.build_context(
-        root, budget_tokens=cfg.context_budget, level=cfg.compression
-    )
-    ui.show_context_stats(res)
-    return context or None
+    n = len(codebase.collect_source_files(root))
+    ui.info(f"Project: {root} — {n} source files. Subagents will explore it (read-only).")
+    return str(root)
 
 
 def _run_pipeline(
@@ -56,7 +53,7 @@ def _run_pipeline(
     plan_only: bool,
     dry_run: bool,
     refine: bool,
-    context: Optional[str] = None,
+    root: Optional[str] = None,
 ) -> None:
     client = LLMClient(base_url=cfg.base_url)
     subagents = cfg.subagents
@@ -87,10 +84,12 @@ def _run_pipeline(
         refine_prompt = refine_task.text
         ui.info(f"Refined prompt:\n{refine_prompt}\n")
 
+    if root:
+        ui.info("Subagents explore the project folder agentically (read-only)…")
     ui.info(f"Dispatching to {len(subagents)} subagents in parallel…")
     responses = asyncio.run(
         run_subagents_parallel(
-            client, subagents, prompt, refine_prompt=refine_prompt, context=context
+            client, subagents, prompt, refine_prompt=refine_prompt, root=root
         )
     )
     ui.show_subagent_responses(responses)
@@ -157,7 +156,7 @@ def main(
         False, "--refine", help="Let orchestrator LLM refine the prompt first."
     ),
     context: Optional[str] = typer.Option(
-        None, "--context", help="Folder whose source code is fed to the subagents."
+        None, "--context", help="Project folder the subagents explore agentically (read-only)."
     ),
 ) -> None:
     """Klotho: dispatch a prompt, judge responses, synthesize a plan."""
@@ -181,7 +180,7 @@ def main(
     plan_only_mode = plan_only or (not execute and not dry_run)
     _run_pipeline(
         cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine,
-        context=_load_context(context, cfg),
+        root=_resolve_root(context),
     )
 
 
@@ -204,7 +203,7 @@ def run(
         False, "--refine", help="Let orchestrator LLM refine the prompt first."
     ),
     context: Optional[str] = typer.Option(
-        None, "--context", help="Folder whose source code is fed to the subagents."
+        None, "--context", help="Project folder the subagents explore agentically (read-only)."
     ),
 ) -> None:
     """Dispatch PROMPT to subagents, judge, synthesize and (optionally) execute."""
@@ -212,7 +211,7 @@ def run(
     plan_only_mode = plan_only or (not execute and not dry_run)
     _run_pipeline(
         cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine,
-        context=_load_context(context, cfg),
+        root=_resolve_root(context),
     )
 
 

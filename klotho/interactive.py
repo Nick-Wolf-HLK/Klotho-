@@ -82,25 +82,27 @@ def _ask_topic() -> Optional[str]:
         )
 
 
-def _ask_context(budget: int, level: str) -> Optional[str]:
-    """Fragt optional nach einem Quellcode-Ordner und speist ihn (gefiltert,
-    komprimiert, budgetiert) als Kontext für die Subagenten ein."""
+def _ask_project_root() -> Optional[str]:
+    """Fragt optional nach einem Projektordner, den die Subagenten anschließend
+    SELBST agentisch durchsuchen (read-only: list_dir/read_file/grep)."""
     path = questionary.text(
-        "Quellcode-Ordner einspeisen? Pfad (leer = ohne Code):",
+        "Projektordner für Code-Analyse? Pfad (leer = ohne Code):",
     ).ask()
     if path is None or not path.strip():
         return None
     root = Path(path.strip()).expanduser()
     if not root.is_dir():
         ui.error(f"Ordner nicht gefunden: {root}")
-        return _ask_context(budget, level)
-    ui.info(f"Scanne {root} … (Ballast wie venv/node_modules wird gefiltert)")
-    context, res = codebase.build_context(root, budget_tokens=budget, level=level)
-    ui.show_context_stats(res)
-    if not res.collected:
+        return _ask_project_root()
+    files = codebase.collect_source_files(root)
+    if not files:
         ui.klotho_say("Keine Quelldateien gefunden — ich fahre ohne Code fort.")
         return None
-    return context
+    ui.klotho_say(
+        f"Projektordner [bold]{root}[/] mit [bold]{len(files)}[/] Quelldateien. "
+        "Jeder Subagent durchsucht ihn selbst (read-only)."
+    )
+    return str(root)
 
 
 def _ask_mode() -> tuple[bool, bool]:
@@ -141,7 +143,7 @@ def _run_pipeline(
     plan_only: bool,
     dry_run: bool,
     refine: bool,
-    context: Optional[str] = None,
+    root: Optional[str] = None,
 ) -> None:
     client = LLMClient(base_url=cfg.base_url)
     subagents = cfg.subagents
@@ -173,12 +175,12 @@ def _run_pipeline(
         refine_prompt = refine_task.text
         console.print(Panel(Markdown(refine_prompt), title="Verfeinerter Prompt", border_style="cyan"))
 
-    if context:
-        ui.info("Speise Quellcode-Kontext an die Subagenten ein…")
+    if root:
+        ui.info("Subagenten durchsuchen den Projektordner agentisch (read-only)…")
     ui.info(f"Schicke an {len(subagents)} Subagenten parallel…")
     responses = asyncio.run(
         run_subagents_parallel(
-            client, subagents, prompt, refine_prompt=refine_prompt, context=context
+            client, subagents, prompt, refine_prompt=refine_prompt, root=root
         )
     )
     ui.show_subagent_responses(responses)
@@ -292,8 +294,8 @@ def start_interactive() -> None:
             console.print("[dim]Abgebrochen.[/]")
             return
 
-        # 4b. Optional: Quellcode eines Ordners einspeisen
-        context = _ask_context(base_cfg.context_budget, base_cfg.compression)
+        # 4b. Optional: Projektordner, den die Subagenten agentisch durchsuchen
+        root = _ask_project_root()
 
         # 5. Modus abfragen (Dropdown)
         execute, dry = _ask_mode()
@@ -330,7 +332,7 @@ def start_interactive() -> None:
                 plan_only=not execute,
                 dry_run=dry,
                 refine=refine,
-                context=context,
+                root=root,
             )
         except KeyboardInterrupt:
             console.print("\n[yellow]Abgebrochen.[/]")

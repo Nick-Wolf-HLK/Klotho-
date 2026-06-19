@@ -94,13 +94,25 @@ async def run_subagents_parallel(
     *,
     refine_prompt: Optional[str] = None,
     context: Optional[str] = None,
+    root: Optional[str] = None,
     timeout: Optional[float] = None,
 ) -> list[SubagentResponse]:
-    tasks = [
-        run_subagent(
-            client, sub, prompt,
-            refine_prompt=refine_prompt, context=context, timeout=timeout,
-        )
-        for sub in sorted(subagents, key=lambda s: s.order)
-    ]
+    ordered = sorted(subagents, key=lambda s: s.order)
+    if root:
+        # Agentischer Modus: jeder Subagent durchsucht den Ordner SELBST.
+        from .agent import run_agentic_subagent
+        tasks = [
+            run_agentic_subagent(
+                client, sub, refine_prompt or prompt, root, timeout=timeout,
+            )
+            for sub in ordered
+        ]
+    else:
+        tasks = [
+            run_subagent(
+                client, sub, prompt,
+                refine_prompt=refine_prompt, context=context, timeout=timeout,
+            )
+            for sub in ordered
+        ]
     return await asyncio.gather(*tasks)

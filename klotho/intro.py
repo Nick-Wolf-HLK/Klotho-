@@ -65,8 +65,8 @@ def show_onboarding(console: Console) -> None:
         "  [cyan]3.[/] Du wählst mehrere [bold]Subagenten[/] — sie entwerfen parallel Pläne.\n"
         "      [dim]Mehrfachauswahl: mit der Leertaste markieren, mit Enter bestätigen.[/]\n"
         "  [cyan]4.[/] Du nennst mir dein [bold]Thema[/] — und optional einen "
-        "[bold]Code-Ordner[/], den ich einspeise (echte Code-Analyse).\n\n"
-        "[dim]Ballast wie venv/node_modules filtere ich automatisch und komprimiere den Rest (TSCG).[/]\n"
+        "[bold]Projektordner[/], den die Subagenten [bold]selbst durchsuchen[/].\n\n"
+        "[dim]Agentisch: read-only Werkzeuge (list/read/grep), sandboxed; Ballast wie venv/node_modules bleibt unsichtbar.[/]\n"
         "[dim]Tipp: Esc bricht jederzeit ab. Setze KLOTHO_NO_INTRO=1, um die Animation zu überspringen.[/]"
     )
     console.print()

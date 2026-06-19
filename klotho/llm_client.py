@@ -64,6 +64,34 @@ class LLMClient:
         text = data["choices"][0]["message"]["content"]
         return LLMResult(text=text, elapsed_ms=elapsed, raw=data)
 
+    async def chat_with_tools(
+        self,
+        model: str,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        temperature: float = 0.3,
+    ) -> dict:
+        """OpenAI-style tool-calling turn. Returns the assistant *message* dict
+        (which may contain ``tool_calls``)."""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "temperature": temperature,
+            "stream": False,
+        }
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        return data["choices"][0]["message"]
+
     async def chat_json(
         self,
         model: str,

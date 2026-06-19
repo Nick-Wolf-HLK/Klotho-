@@ -141,30 +141,29 @@ level = "safe"          # off | safe | aggressive
 
 Run `klotho config` to set roles interactively (uses `questionary`).
 
-## Code-Einspeisung (echte Code-Analyse)
+## Agentische Code-Analyse (echte Code-Suche)
 
-Standardmäßig *planen* die Subagenten nur — sie sehen deinen Code nicht. Mit
-**Code-Einspeisung** liest Klotho einen Ordner ein und gibt den Quellcode den
-Subagenten als Kontext, sodass sie **echten** Code analysieren (z. B. Bugreport,
-Review).
+Gibst du einen **Projektordner** an, bekommt jeder Subagent **read-only
+Werkzeuge** (`list_dir`, `read_file`, `grep`, `find_files`) und **durchsucht den
+Ordner selbst** — wie ein Coding-Agent: erst auflisten/suchen, dann die
+relevanten Dateien lesen, iterativ, bis er seinen Report hat. Kein „serviertes"
+Code-Stück, kein Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
 
 ```bash
 klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
 ```
 
-Im interaktiven Modus fragt Klotho nach dem Thema nach einem Ordner.
+Im interaktiven Modus fragt Klotho nach dem Thema nach einem Projektordner.
 
-Klotho **filtert automatisch Ballast** (`venv*`, `node_modules`, `dist`,
-`build`, `site-packages`, `__pycache__`, `.git`, Binär-/Riesendateien) — so
-bleibt selbst in einem 6,5-GB-Repo nur der echte Quellcode übrig. Der wird
-(TSCG-)komprimiert und bis zu einem **Token-Budget** (`[context] budget`,
-Standard 60 000) eingespeist; kleine Dateien zuerst für maximale Abdeckung.
-Klotho zeigt transparent, wie viele Dateien eingespeist bzw. wegen Budget
-weggelassen wurden.
+Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
+gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
+ausführen. Ballast (`venv*`, `node_modules`, `dist`, `__pycache__`, …) ist für
+die Werkzeuge unsichtbar. Der Loop ist auf `max_iterations` begrenzt.
 
-> Für sehr große Repos: Budget erhöhen oder den Ordner enger fassen (z. B. nur
-> `backend/app` statt das ganze Repo). Eine vollständige Analyse eines
-> Millionen-Zeilen-Repos in einem Durchlauf ist mit keinem LLM möglich.
+So skaliert das auch für große Repos: Statt alles einzuspeisen, holt sich jeder
+Agent nur die Dateien, die er für die Aufgabe braucht. (Die einfachere
+„Code-Einspeisung" als Bibliotheksfunktion existiert weiterhin in
+`klotho/codebase.py` für kleine Repos.)
 
 ## Token-Kompression (TSCG-inspiriert)
 
@@ -180,9 +179,9 @@ Payloads deterministisch, bevor sie verschickt werden:
 
 Nach jeder Pipeline zeigt Klotho die geschätzte Ersparnis (`◈ TSCG …`).
 
-> Hinweis: Klotho nutzt kein function-calling — die spektakulären Schema-Werte
-> von TSCG (50–72 %) gelten dort nicht; bei Freitext-Antworten sind es real
-> ~10–20 % (mehr mit `aggressive`).
+> Hinweis: Die Kompression greift auf den Freitext-Antworten der Subagenten
+> (Reports an Judge/Synthese) — real ~10–20 % (mehr mit `aggressive`). Die
+> spektakulären Schema-Werte von TSCG (50–72 %) gelten für Tool-Schemas.
 
 Die Idee stammt von **[TSCG](https://github.com/SKZL-AI/tscg)** (Furkan Sakizli /
 SKZL-AI) und der **pi-tscg**-Extension für den Pi-Coding-Agent. Klotho portiert
