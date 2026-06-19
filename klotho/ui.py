@@ -61,6 +61,17 @@ def klotho_say(msg: str) -> None:
     console.print(f"[bold cyan]◈ Klotho[/] [dim]·[/] {msg}")
 
 
+def show_compression_stats(stats) -> None:
+    """Token-Ersparnis der TSCG-inspirierten Kompression (falls aktiv)."""
+    if getattr(stats, "level", "off") == "off" or stats.before <= 0:
+        return
+    console.print(
+        f"[dim]◈ TSCG[/] [cyan]{stats.level}[/] [dim]·[/] "
+        f"{stats.before} → {stats.after} tok [dim]·[/] "
+        f"[green]−{stats.ratio:.0%}[/] [dim]({stats.saved} Tokens gespart, geschätzt)[/]"
+    )
+
+
 def info(msg: str) -> None:
     console.print(f"[dim]{msg}[/]")
 

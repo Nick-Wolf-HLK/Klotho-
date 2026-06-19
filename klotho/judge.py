@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from . import compress
+from .compress import CompressionStats
 from .config import RubricConfig
 from .llm_client import LLMClient
 from .plan_schema import (
@@ -27,10 +29,13 @@ def _build_judge_prompt(
     prompt: str,
     responses: list[SubagentResponse],
     rubric: RubricConfig,
+    compression: str = "safe",
+    stats: Optional[CompressionStats] = None,
 ) -> str:
     blocks = []
     for r in responses:
         body = r.response if r.response else f"(ERROR: {r.error})"
+        body = compress.compress_text(body, compression, stats=stats)
         blocks.append(
             f"### Agent: {r.agent} (model: {r.model})\n{body}"
         )
@@ -61,7 +66,7 @@ def _build_judge_prompt(
         "Weights must be non-negative and sum to 1.0; allocate more weight "
         "to stronger responses.\n"
         "Respond ONLY as JSON with this schema:\n"
-        f"{json.dumps(schema, indent=2)}"
+        f"{compress.compact_json(schema)}"
     )
 
 
@@ -71,8 +76,11 @@ async def judge_responses(
     prompt: str,
     responses: list[SubagentResponse],
     rubric: RubricConfig,
+    *,
+    compression: str = "safe",
+    stats: Optional[CompressionStats] = None,
 ) -> JudgeReport:
-    user_prompt = _build_judge_prompt(prompt, responses, rubric)
+    user_prompt = _build_judge_prompt(prompt, responses, rubric, compression, stats)
     messages = [
         {"role": "system", "content": JUDGE_SYSTEM},
         {"role": "user", "content": user_prompt},

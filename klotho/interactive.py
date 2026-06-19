@@ -15,7 +15,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from . import intro, ui
+from . import compress, intro, ui
 from .config import (
     OrchestratorConfig,
     SubagentConfig,
@@ -155,18 +155,27 @@ def _run_pipeline(
     )
     ui.show_subagent_responses(responses)
 
+    comp_stats = compress.CompressionStats(level=cfg.compression)
+
     ui.info(f"Bewerte mit {cfg.judge_model}…")
     report = asyncio.run(
-        judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
+        judge_responses(
+            client, cfg.judge_model, prompt, responses, cfg.rubric,
+            compression=cfg.compression, stats=comp_stats,
+        )
     )
     ui.show_judge_report(report)
 
     synth_model = cfg.orchestrator_model
     ui.info(f"Synthetisiere Masterplan mit {synth_model}…")
     plan = asyncio.run(
-        synthesize_plan(client, synth_model, prompt, responses, report)
+        synthesize_plan(
+            client, synth_model, prompt, responses, report,
+            compression=cfg.compression, stats=comp_stats,
+        )
     )
     ui.show_master_plan(plan)
+    ui.show_compression_stats(comp_stats)
 
     if plan_only:
         ui.success("Plan-only: fertig.")

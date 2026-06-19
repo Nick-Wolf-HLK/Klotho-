@@ -27,3 +27,8 @@ dry_run_default = false
 
 [rubric]
 criteria = ["completeness", "feasibility", "originality", "depth"]
+
+[compression]
+# TSCG-inspirierte Token-Kompression der Subagenten-Antworten (Judge + Synthese).
+# off | safe (verlustarm) | aggressive (kürzt sehr lange Antworten)
+level = "safe"

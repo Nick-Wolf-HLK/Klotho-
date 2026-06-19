@@ -133,9 +133,36 @@ dry_run_default = false
 
 [rubric]
 criteria = ["completeness", "feasibility", "originality", "depth"]
+
+[compression]
+# TSCG-inspirierte Token-Kompression (siehe unten)
+level = "safe"          # off | safe | aggressive
 ```
 
 Run `klotho config` to set roles interactively (uses `questionary`).
+
+## Token-Kompression (TSCG-inspiriert)
+
+Judge *und* Synthesizer bekommen **alle** Subagenten-Antworten in den Prompt —
+bei mehreren Subagenten ist das Klothos Token-Hotspot. Klotho komprimiert diese
+Payloads deterministisch, bevor sie verschickt werden:
+
+| `level`      | Wirkung |
+|--------------|---------|
+| `off`        | keine Kompression |
+| `safe`       | verlustarm: trailing Whitespace + überzählige Leerzeilen entfernt, Schema kompakt serialisiert. Code/Inhalt bleibt unangetastet. (Standard) |
+| `aggressive` | zusätzlich: sehr lange Antworten werden mit Marker gekürzt |
+
+Nach jeder Pipeline zeigt Klotho die geschätzte Ersparnis (`◈ TSCG …`).
+
+> Hinweis: Klotho nutzt kein function-calling — die spektakulären Schema-Werte
+> von TSCG (50–72 %) gelten dort nicht; bei Freitext-Antworten sind es real
+> ~10–20 % (mehr mit `aggressive`).
+
+Die Idee stammt von **[TSCG](https://github.com/SKZL-AI/tscg)** (Furkan Sakizli /
+SKZL-AI) und der **pi-tscg**-Extension für den Pi-Coding-Agent. Klotho portiert
+das *Prinzip* (deterministische Payload-Kompression) nach Python — der TSCG-Code
+selbst wird nicht eingebunden.
 
 ## Cloud-model proxy (only if needed)
 

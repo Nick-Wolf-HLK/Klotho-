@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from . import ui
+from . import compress, ui
 from .config import (
     DEFAULT_CONFIG_PATH,
     OrchestratorConfig,
@@ -76,10 +76,13 @@ def _run_pipeline(
     )
     ui.show_subagent_responses(responses)
 
+    comp_stats = compress.CompressionStats(level=cfg.compression)
+
     ui.info(f"Judging with {cfg.judge_model}…")
     report = asyncio.run(
         judge_responses(
-            client, cfg.judge_model, prompt, responses, cfg.rubric
+            client, cfg.judge_model, prompt, responses, cfg.rubric,
+            compression=cfg.compression, stats=comp_stats,
         )
     )
     ui.show_judge_report(report)
@@ -87,9 +90,13 @@ def _run_pipeline(
     synth_model = cfg.orchestrator_model
     ui.info(f"Synthesizing master plan with {synth_model}…")
     plan = asyncio.run(
-        synthesize_plan(client, synth_model, prompt, responses, report)
+        synthesize_plan(
+            client, synth_model, prompt, responses, report,
+            compression=cfg.compression, stats=comp_stats,
+        )
     )
     ui.show_master_plan(plan)
+    ui.show_compression_stats(comp_stats)
 
     if plan_only:
         ui.success("Plan-only mode: stopping here.")

@@ -49,6 +49,7 @@ class OrchestratorConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     rubric: RubricConfig = field(default_factory=RubricConfig)
     base_url: str = "http://127.0.0.1:11434/v1"
+    compression: str = "safe"  # off | safe | aggressive (TSCG-inspiriert)
 
     @property
     def subagent_models(self) -> list[str]:
@@ -143,6 +144,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
     subs_raw = data.get("subagents", [])
     exec_raw = data.get("execution", {})
     rubric_raw = data.get("rubric", {})
+    compression_raw = data.get("compression", {})
     subagents = [
         SubagentConfig(
             name=s.get("name", s.get("model", "?")),
@@ -164,6 +166,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
             "completeness", "feasibility", "originality", "depth"
         ])),
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
+        compression=compression_raw.get("level", "safe"),
     )
 
 
@@ -202,6 +205,9 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append("")
     lines.append("[rubric]")
     lines.append(f'criteria = {[c for c in cfg.rubric.criteria]}')
+    lines.append("")
+    lines.append("[compression]")
+    lines.append(f'level = "{cfg.compression}"  # off | safe | aggressive')
     lines.append("")
     path.write_text("\n".join(lines))
 

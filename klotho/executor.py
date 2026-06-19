@@ -21,7 +21,7 @@ class Executor:
     def __init__(
         self,
         root_lock: str = ".",
-        log_file: str = "~/.orchestrator/log.jsonl",
+        log_file: str = "~/.klotho/log.jsonl",
         dry_run: bool = False,
     ) -> None:
         self.root = Path(root_lock).resolve()

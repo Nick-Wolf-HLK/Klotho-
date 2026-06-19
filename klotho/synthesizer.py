@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from . import compress
+from .compress import CompressionStats
 from .llm_client import LLMClient
 from .plan_schema import JudgeReport, MasterPlan, SubagentResponse
 
@@ -21,13 +23,16 @@ def _build_synth_prompt(
     original_prompt: str,
     responses: list[SubagentResponse],
     report: JudgeReport,
+    compression: str = "safe",
+    stats: Optional[CompressionStats] = None,
 ) -> str:
     weight_map = {v.agent: v.weight for v in report.verdicts}
     blocks = []
     for r in responses:
         w = weight_map.get(r.agent, 0.0)
+        body = compress.compress_text(r.response, compression, stats=stats)
         blocks.append(
-            f"### Agent: {r.agent} (weight={w:.2f})\n{r.response}"
+            f"### Agent: {r.agent} (weight={w:.2f})\n{body}"
         )
     joined = "\n\n".join(blocks)
     schema = {
@@ -55,7 +60,7 @@ def _build_synth_prompt(
         "shell command in 'command'. For write_file put target path in 'path' "
         "and the content inside 'description'. depends_on lists step ids.\n"
         "Respond ONLY as JSON matching this schema:\n"
-        f"{json.dumps(schema, indent=2)}"
+        f"{compress.compact_json(schema)}"
     )
 
 
@@ -65,8 +70,13 @@ async def synthesize_plan(
     original_prompt: str,
     responses: list[SubagentResponse],
     report: JudgeReport,
+    *,
+    compression: str = "safe",
+    stats: Optional[CompressionStats] = None,
 ) -> MasterPlan:
-    user_prompt = _build_synth_prompt(original_prompt, responses, report)
+    user_prompt = _build_synth_prompt(
+        original_prompt, responses, report, compression, stats
+    )
     messages = [
         {"role": "system", "content": SYNTH_SYSTEM},
         {"role": "user", "content": user_prompt},
