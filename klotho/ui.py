@@ -75,6 +75,20 @@ def show_context_stats(res) -> None:
     console.print(msg)
 
 
+def show_model_ranking(report) -> None:
+    """Kompaktes Modell-Ranking dieses Laufs (Judge-Scores, absteigend)."""
+    verdicts = getattr(report, "verdicts", None)
+    if not verdicts:
+        return
+    ranked = sorted(verdicts, key=lambda v: v.total_score, reverse=True)
+    medals = ["🥇", "🥈", "🥉"]
+    parts = []
+    for i, v in enumerate(ranked):
+        marker = medals[i] if i < 3 else f"{i + 1}."
+        parts.append(f"{marker} [cyan]{v.agent}[/] [dim]({v.total_score:.1f})[/]")
+    console.print(f"[bold]🏆 Modell-Ranking:[/]  " + "  ·  ".join(parts))
+
+
 def show_compression_stats(stats) -> None:
     """Token-Ersparnis der TSCG-inspirierten Kompression (falls aktiv)."""
     if getattr(stats, "level", "off") == "off" or stats.before <= 0:

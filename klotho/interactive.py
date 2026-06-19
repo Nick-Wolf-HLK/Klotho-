@@ -208,6 +208,7 @@ def _run_pipeline(
     )
     ui.show_master_plan(plan)
     ui.show_compression_stats(comp_stats)
+    ui.show_model_ranking(report)
 
     if plan_only:
         ui.success("Plan-only: fertig.")
