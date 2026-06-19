@@ -167,7 +167,20 @@ klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
 Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
 gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
 ausführen. Ballast (`venv*`, `node_modules`, `dist`, `__pycache__`, …) ist für
-die Werkzeuge unsichtbar. Der Loop ist auf `max_iterations` begrenzt.
+die Werkzeuge unsichtbar.
+
+**Gründlichkeit (`[agent] max_iterations`, Standard 60):** So viele Werkzeug-
+Runden darf jeder Subagent machen. Höher = mehr Dateien gelesen = gründlicher,
+aber langsamer und mehr Tokens. Jeder Report endet mit einer Fußzeile, wie viele
+Dateien gelesen wurden und ob das Limit erreicht war:
+
+```
+_Untersucht: 38 Dateien gelesen, 55 Werkzeug-Aufrufe in 412s._
+```
+
+Für sehr große Repos (hunderte Dateien) das Limit hochsetzen (z. B. 100–150) —
+ein einzelner Agent kann aus Kontext-/Zeitgründen nicht *jede* Datei lesen, aber
+die vier Subagenten decken zusammen ein breites Spektrum ab.
 
 So skaliert das auch für große Repos: Statt alles einzuspeisen, holt sich jeder
 Agent nur die Dateien, die er für die Aufgabe braucht. (Die einfachere

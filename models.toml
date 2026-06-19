@@ -38,3 +38,9 @@ level = "safe"
 # Klotho filtert Ballast (venv, node_modules, dist, …) und speist Quellcode
 # bis zu diesem Budget ein (kleine Dateien zuerst).
 budget = 60000
+
+[agent]
+# Schritte (Werkzeug-Runden) pro agentischem Subagenten, der den Projektordner
+# selbst durchsucht. Höher = gründlicher (mehr Dateien gelesen), aber langsamer
+# und mehr Tokens. Für riesige Repos hochsetzen (z. B. 100–150).
+max_iterations = 60

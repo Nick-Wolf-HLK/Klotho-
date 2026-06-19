@@ -95,6 +95,7 @@ async def run_subagents_parallel(
     refine_prompt: Optional[str] = None,
     context: Optional[str] = None,
     root: Optional[str] = None,
+    max_iterations: int = 60,
     timeout: Optional[float] = None,
 ) -> list[SubagentResponse]:
     ordered = sorted(subagents, key=lambda s: s.order)
@@ -103,7 +104,8 @@ async def run_subagents_parallel(
         from .agent import run_agentic_subagent
         tasks = [
             run_agentic_subagent(
-                client, sub, refine_prompt or prompt, root, timeout=timeout,
+                client, sub, refine_prompt or prompt, root,
+                max_iterations=max_iterations, timeout=timeout,
             )
             for sub in ordered
         ]

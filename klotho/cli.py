@@ -89,7 +89,8 @@ def _run_pipeline(
     ui.info(f"Dispatching to {len(subagents)} subagents in parallel…")
     responses = asyncio.run(
         run_subagents_parallel(
-            client, subagents, prompt, refine_prompt=refine_prompt, root=root
+            client, subagents, prompt, refine_prompt=refine_prompt, root=root,
+            max_iterations=cfg.agent_max_iterations,
         )
     )
     ui.show_subagent_responses(responses)

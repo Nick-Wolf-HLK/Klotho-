@@ -51,6 +51,7 @@ class OrchestratorConfig:
     base_url: str = "http://127.0.0.1:11434/v1"
     compression: str = "safe"  # off | safe | aggressive (TSCG-inspiriert)
     context_budget: int = 60000  # Token-Budget für eingespeisten Code
+    agent_max_iterations: int = 60  # Schritte pro agentischem Subagenten
 
     @property
     def subagent_models(self) -> list[str]:
@@ -147,6 +148,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
     rubric_raw = data.get("rubric", {})
     compression_raw = data.get("compression", {})
     context_raw = data.get("context", {})
+    agent_raw = data.get("agent", {})
     subagents = [
         SubagentConfig(
             name=s.get("name", s.get("model", "?")),
@@ -170,6 +172,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
         compression=compression_raw.get("level", "safe"),
         context_budget=int(context_raw.get("budget", 60000)),
+        agent_max_iterations=int(agent_raw.get("max_iterations", 60)),
     )
 
 
@@ -214,6 +217,9 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append("")
     lines.append("[context]")
     lines.append(f'budget = {cfg.context_budget}  # Token-Budget für eingespeisten Code')
+    lines.append("")
+    lines.append("[agent]")
+    lines.append(f'max_iterations = {cfg.agent_max_iterations}  # Schritte pro agentischem Subagenten')
     lines.append("")
     path.write_text("\n".join(lines))
 
