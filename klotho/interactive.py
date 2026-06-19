@@ -83,26 +83,27 @@ def _ask_topic() -> Optional[str]:
 
 
 def _ask_project_root() -> Optional[str]:
-    """Fragt optional nach einem Projektordner, den die Subagenten anschließend
-    SELBST agentisch durchsuchen (read-only: list_dir/read_file/grep)."""
-    path = questionary.text(
-        "Projektordner für Code-Analyse? Pfad (leer = ohne Code):",
+    """Bietet den AKTUELLEN Ordner (cwd) zur agentischen Code-Analyse an.
+
+    Klotho analysiert immer den Ordner, aus dem es gestartet wurde — du musst
+    keinen Pfad eintippen, nur bestätigen.
+    """
+    cwd = Path.cwd()
+    n = len(codebase.collect_source_files(cwd))
+    if n == 0:
+        ui.klotho_say(
+            f"Kein Quellcode im aktuellen Ordner ([bold]{cwd}[/]) — ich plane ohne Code. "
+            "[dim](Starte Klotho im Ordner deines Codes, um ihn zu analysieren.)[/]"
+        )
+        return None
+    use = questionary.confirm(
+        f"Code im aktuellen Ordner analysieren? ({cwd} — {n} Quelldateien)",
+        default=True,
     ).ask()
-    if path is None or not path.strip():
+    if not use:
         return None
-    root = Path(path.strip()).expanduser()
-    if not root.is_dir():
-        ui.error(f"Ordner nicht gefunden: {root}")
-        return _ask_project_root()
-    files = codebase.collect_source_files(root)
-    if not files:
-        ui.klotho_say("Keine Quelldateien gefunden — ich fahre ohne Code fort.")
-        return None
-    ui.klotho_say(
-        f"Projektordner [bold]{root}[/] mit [bold]{len(files)}[/] Quelldateien. "
-        "Jeder Subagent durchsucht ihn selbst (read-only)."
-    )
-    return str(root)
+    ui.klotho_say("Jeder Subagent durchsucht diesen Ordner selbst (read-only).")
+    return str(cwd)
 
 
 def _ask_mode() -> tuple[bool, bool]:

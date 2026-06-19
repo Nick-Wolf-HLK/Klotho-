@@ -149,11 +149,20 @@ Ordner selbst** — wie ein Coding-Agent: erst auflisten/suchen, dann die
 relevanten Dateien lesen, iterativ, bis er seinen Report hat. Kein „serviertes"
 Code-Stück, kein Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
 
+**Interaktiv** — starte Klotho einfach im Ordner deines Codes; es bietet den
+aktuellen Ordner zur Analyse an (nur bestätigen):
+
 ```bash
-klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
+cd /pfad/zu/deinem/code
+klotho
 ```
 
-Im interaktiven Modus fragt Klotho nach dem Thema nach einem Projektordner.
+**Direkt per CLI** mit explizitem Ordner:
+
+```bash
+klotho "Erstelle einen Bugreport" --context .                 # aktueller Ordner
+klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
+```
 
 Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
 gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder

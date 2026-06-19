@@ -64,9 +64,9 @@ def show_onboarding(console: Console) -> None:
         "  [cyan]2.[/] Du wählst einen [bold]Judge[/] — er bewertet die Entwürfe neutral.\n"
         "  [cyan]3.[/] Du wählst mehrere [bold]Subagenten[/] — sie entwerfen parallel Pläne.\n"
         "      [dim]Mehrfachauswahl: mit der Leertaste markieren, mit Enter bestätigen.[/]\n"
-        "  [cyan]4.[/] Du nennst mir dein [bold]Thema[/] — und optional einen "
-        "[bold]Projektordner[/], den die Subagenten [bold]selbst durchsuchen[/].\n\n"
-        "[dim]Agentisch: read-only Werkzeuge (list/read/grep), sandboxed; Ballast wie venv/node_modules bleibt unsichtbar.[/]\n"
+        "  [cyan]4.[/] Du nennst mir dein [bold]Thema[/] — und ich biete dir an, den "
+        "Code im [bold]aktuellen Ordner[/] zu analysieren (die Subagenten durchsuchen ihn selbst).\n\n"
+        "[dim]Starte Klotho im Ordner deines Codes. Agentisch: read-only (list/read/grep), sandboxed; Ballast bleibt unsichtbar.[/]\n"
         "[dim]Tipp: Esc bricht jederzeit ab. Setze KLOTHO_NO_INTRO=1, um die Animation zu überspringen.[/]"
     )
     console.print()
