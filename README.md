@@ -49,7 +49,8 @@ synthetisiert daraus *einen* Masterplan — den es auf Wunsch direkt ausführt.
 ## Install
 
 ```bash
-cd /Users/dominicwolf/Desktop/Cremium
+git clone https://github.com/Nick-Wolf-HLK/Klotho-.git
+cd Klotho-
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
