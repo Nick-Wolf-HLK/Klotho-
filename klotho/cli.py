@@ -137,53 +137,16 @@ def _run_pipeline(
 
 
 @app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
-    prompt: Optional[str] = typer.Argument(
-        None, help="Planning prompt (skip to launch interactive mode)."
-    ),
-    config: Path = typer.Option(
-        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to models.toml"
-    ),
-    plan_only: bool = typer.Option(
-        False, "--plan-only", help="Only produce a plan, do not execute (default)."
-    ),
-    execute: bool = typer.Option(
-        False, "--execute", help="Execute the produced plan."
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Show what would happen without running it."
-    ),
-    refine: bool = typer.Option(
-        False, "--refine", help="Let orchestrator LLM refine the prompt first."
-    ),
-    context: Optional[str] = typer.Option(
-        None, "--context", help="Project folder the subagents explore agentically (read-only)."
-    ),
-) -> None:
-    """Klotho: dispatch a prompt, judge responses, synthesize a plan."""
+def main(ctx: typer.Context) -> None:
+    """Klotho — Multi-LLM Orchestrator.
+
+    Ohne Unterbefehl startet der interaktive Modus. Direktmodus:
+    'klotho run "<prompt>" [--context .] [--execute]'.
+    """
     if ctx.invoked_subcommand is not None:
         return
-    # No prompt given → launch interactive REPL mode
-    if not prompt:
-        from .interactive import start_interactive
-        start_interactive()
-        return
-    # Typer mit positionalem callback-Argument schluckt Subcommand-Namen als
-    # 'prompt'. Wenn der 'prompt' exakt ein bekannter Subcommand ist (und keine
-    # weiteren Pipeline-Flags gesetzt sind), an diesen delegieren.
-    if prompt == "models":
-        models_cmd()
-        return
-    if prompt == "config":
-        config_cmd(config=config)
-        return
-    cfg = _load(config)
-    plan_only_mode = plan_only or (not execute and not dry_run)
-    _run_pipeline(
-        cfg, prompt, plan_only=plan_only_mode, dry_run=dry_run, refine=refine,
-        root=_resolve_root(context),
-    )
+    from .interactive import start_interactive
+    start_interactive()
 
 
 @app.command()
@@ -233,9 +196,22 @@ def config_cmd(
 
 
 @app.command("models")
-def models_cmd() -> None:
-    """List all models known via opencode config + local ollama."""
+def models_cmd(
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Cloud-Modell-Katalog von ollama.com neu laden."
+    ),
+) -> None:
+    """List all known models (local ollama + config + cached Ollama-Cloud catalog)."""
+    from . import cloud_registry
     from .config import all_known_models
+
+    if refresh:
+        ui.info("Lade Cloud-Modelle von ollama.com …")
+        try:
+            n = len(cloud_registry.refresh_cache())
+            ui.success(f"{n} Ollama-Cloud-Modelle gecacht.")
+        except Exception as exc:
+            ui.error(f"Cloud-Abruf fehlgeschlagen: {exc}")
 
     for m in all_known_models():
         print(m)

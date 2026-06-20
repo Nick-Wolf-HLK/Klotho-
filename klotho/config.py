@@ -128,11 +128,13 @@ def list_local_ollama_models(base_url: str = "http://127.0.0.1:11434") -> list[s
 
 
 def all_known_models(base_url: str = "http://127.0.0.1:11434") -> list[str]:
-    """Union of registered cloud models (opencode config + ollama integrations)
-    and locally pulled ollama models."""
+    """Union of: registered cloud models (opencode config + ollama integrations),
+    locally pulled ollama models, and the cached Ollama-Cloud catalog."""
+    from . import cloud_registry  # lazy: vermeidet harte httpx-Abhängigkeit beim Import
     combined = set(load_opencode_models())
     combined.update(load_ollama_integration_models())
     combined.update(list_local_ollama_models(base_url))
+    combined.update(cloud_registry.cached_cloud_models())
     return sorted(combined)
 
 

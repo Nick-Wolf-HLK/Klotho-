@@ -55,8 +55,14 @@ pip install -e ".[dev]"
 ```
 
 Requires a running **Ollama** daemon at `http://127.0.0.1:11434` (your existing
-setup). Cloud models (`glm-5.2:cloud`, `minimax-m2.7:cloud`, …) are read from
-`~/.ollama/config.json` (`integrations.*.models`) and from `~/.opencode.json`.
+setup) and, for cloud models, `ollama signin`.
+
+**Cloud-Modell-Katalog:** Klotho zieht die verfügbaren Ollama-Cloud-Modelle
+direkt von ollama.com (mit korrekten Tags wie `:cloud`, `:120b-cloud`) und cacht
+sie 7 Tage unter `~/.klotho/cloud_models.json`. Beim ersten interaktiven Start
+wird der Katalog automatisch geladen (~2 s); manuell jederzeit per
+`klotho models --refresh`. Zusätzlich werden lokal installierte Modelle und in
+`~/.ollama/config.json` / `~/.opencode.json` eingetragene Modelle angezeigt.
 
 ## Usage
 
@@ -83,22 +89,23 @@ Nach jeder Session: "Noch eine Session?" → Loop.
 
 ```bash
 # produce plan only (default)
-klotho "Plan a CI/CD pipeline for a Python monorepo"
+klotho run "Plan a CI/CD pipeline for a Python monorepo"
 
 # produce + execute (full-auto, cwd-locked)
-klotho "Plan a CI/CD pipeline for a Python monorepo" --execute
+klotho run "Plan a CI/CD pipeline for a Python monorepo" --execute
 
 # preview execution without running
-klotho "…" --execute --dry-run
+klotho run "…" --execute --dry-run
 
 # let the orchestrator LLM refine the prompt first
-klotho "…" --refine
+klotho run "…" --refine
 
 # interactive config TUI (choose which model plays which role)
 klotho config
 
-# list all known models (ollama integrations + opencode + local ollama)
+# list all known models; --refresh lädt den Ollama-Cloud-Katalog neu
 klotho models
+klotho models --refresh
 ```
 
 ## Configuration — `models.toml`
@@ -160,8 +167,8 @@ klotho
 **Direkt per CLI** mit explizitem Ordner:
 
 ```bash
-klotho "Erstelle einen Bugreport" --context .                 # aktueller Ordner
-klotho "Erstelle einen Bugreport" --context /pfad/zum/projekt
+klotho run "Erstelle einen Bugreport" --context .                 # aktueller Ordner
+klotho run "Erstelle einen Bugreport" --context /pfad/zum/projekt
 ```
 
 Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner

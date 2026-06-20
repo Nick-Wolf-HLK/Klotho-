@@ -249,6 +249,14 @@ def start_interactive() -> None:
 
     base_url = load_opencode_base_url() or "http://127.0.0.1:11434/v1"
     base_cfg = load_config()  # compression/context_budget (models.toml oder Defaults)
+
+    from . import cloud_registry
+    if cloud_registry.cache_is_stale():
+        with console.status("[cyan]Lade verfügbare Ollama-Cloud-Modelle …[/]", spinner="dots"):
+            try:
+                cloud_registry.refresh_cache(timeout=15)
+            except Exception:
+                pass  # offline → nur lokale + konfigurierte Modelle
     available = all_known_models()
     if not available:
         console.print("[red]Keine Modelle gefunden. Läuft Ollama?[/]")
