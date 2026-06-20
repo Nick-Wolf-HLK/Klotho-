@@ -100,6 +100,23 @@ def show_compression_stats(stats) -> None:
     )
 
 
+def show_bug_report(md: str) -> str | None:
+    """Zeigt den konsolidierten Bug-Report und speichert ihn als Markdown-Datei
+    (zum Weitergeben an ein Fix-LLM oder zum Selber-Fixen)."""
+    console.print(Panel(Markdown(md), title="[bold red]Bug-Report[/]", border_style="red"))
+    from datetime import datetime
+    from pathlib import Path
+
+    path = Path.cwd() / f"klotho-bugreport-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
+    try:
+        path.write_text(md, encoding="utf-8")
+        console.print(f"[green]✔ Bug-Report gespeichert:[/] {path}")
+        return str(path)
+    except OSError as exc:
+        console.print(f"[yellow]Konnte Report nicht speichern: {exc}[/]")
+        return None
+
+
 def info(msg: str) -> None:
     console.print(f"[dim]{msg}[/]")
 

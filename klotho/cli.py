@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from . import codebase, compress, ui
+from . import audit, codebase, compress, ui
 from .config import (
     DEFAULT_CONFIG_PATH,
     OrchestratorConfig,
@@ -64,18 +64,19 @@ def _run_pipeline(
     refine_prompt: Optional[str] = None
     if refine:
         ui.info(f"Asking orchestrator ({cfg.orchestrator_model}) to refine prompt…")
+        refine_sys = (
+            "Refine the user's code-audit request so it elicits CONCRETE, evidence-backed "
+            "findings (bugs, logic errors, quality issues) with file:line — NOT a plan of how "
+            "to look for them. Output ONLY the refined request."
+            if root else
+            "Refine the user's planning prompt so it elicits the best possible actionable "
+            "plan from a planning subagent. Output ONLY the refined prompt."
+        )
         refine_task = asyncio.run(
             client.chat(
                 cfg.orchestrator_model,
                 [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Refine the user's planning prompt so it elicits the "
-                            "best possible actionable plan from a planning "
-                            "subagent. Output ONLY the refined prompt."
-                        ),
-                    },
+                    {"role": "system", "content": refine_sys},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
@@ -107,6 +108,22 @@ def _run_pipeline(
     ui.show_judge_report(report)
 
     synth_model = cfg.orchestrator_model
+
+    # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
+    if root:
+        ui.info(f"Building consolidated bug report with {synth_model}…")
+        md = asyncio.run(
+            audit.synthesize_bug_report(
+                client, synth_model, prompt, responses, report,
+                compression=cfg.compression, stats=comp_stats,
+            )
+        )
+        ui.show_compression_stats(comp_stats)
+        ui.show_model_ranking(report)
+        ui.show_bug_report(md)
+        ui.success("Bug report done.")
+        return
+
     ui.info(f"Synthesizing master plan with {synth_model}…")
     plan = asyncio.run(
         synthesize_plan(

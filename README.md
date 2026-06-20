@@ -148,13 +148,22 @@ level = "safe"          # off | safe | aggressive
 
 Run `klotho config` to set roles interactively (uses `questionary`).
 
-## Agentische Code-Analyse (echte Code-Suche)
+## Agentische Code-Analyse → Bug-Report
 
 Gibst du einen **Projektordner** an, bekommt jeder Subagent **read-only
 Werkzeuge** (`list_dir`, `read_file`, `grep`, `find_files`) und **durchsucht den
 Ordner selbst** — wie ein Coding-Agent: erst auflisten/suchen, dann die
-relevanten Dateien lesen, iterativ, bis er seinen Report hat. Kein „serviertes"
-Code-Stück, kein Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
+relevanten Dateien lesen, iterativ. Kein „serviertes" Code-Stück, kein
+Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
+
+**Ergebnis ist ein Bug-Report, kein Plan.** Im Code-Modus geben die Subagenten
+konkrete **Befunde** zurück (Bugs, Logikfehler, Qualität, Sicherheit) — jeder mit
+`Datei:Zeile`, Schweregrad, Code-Beleg und Fix-Vorschlag. Der Synthesizer
+konsolidiert sie zu **einem** Bug-Report (dedupliziert, nach Schweregrad sortiert,
+gewichtet nach Judge-Score) und **speichert ihn als `klotho-bugreport-*.md`** —
+den du direkt an ein Fix-LLM weitergeben oder von Klotho fixen lassen kannst.
+Gegen Halluzination müssen Befunde mit einem echten Code-Zitat belegt sein;
+unsichere werden als „(unbestätigt)" markiert.
 
 **Interaktiv** — starte Klotho einfach im Ordner deines Codes; es bietet den
 aktuellen Ordner zur Analyse an (nur bestätigen):

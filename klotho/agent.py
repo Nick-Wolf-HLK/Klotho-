@@ -32,7 +32,14 @@ AGENT_SYSTEM = (
     "your running notes, not on the raw text — it will be gone. This lets you cover hundreds of "
     "files without running out of context.\n\n"
     "Reference exact file paths and line numbers in every finding. When finished, compile all your "
-    "notes into a final report as a normal assistant message with NO further tool calls. Be concrete."
+    "notes into a final report as a normal assistant message with NO further tool calls.\n\n"
+    "If the task is to find bugs / logic errors / quality issues, report each finding as:\n"
+    "- file:line  · severity (critical/high/medium/low) · category (bug/logic/quality/security)\n"
+    "- what is wrong and its impact\n"
+    "- a SHORT QUOTE of the actual offending code as evidence\n"
+    "- a concrete fix\n"
+    "NEVER invent a finding. Every finding MUST be backed by code you actually read with read_file. "
+    "If you are not certain, label it '(unconfirmed)'. Quote the real line — do not paraphrase from memory."
 )
 
 MAX_ITERATIONS = 60
