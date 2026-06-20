@@ -16,7 +16,7 @@ def _report():
 
 def test_prompt_includes_findings_and_weights():
     responses = [SubagentResponse(agent="a", model="m", response="Bug in x.py:1")]
-    p = audit._build_audit_prompt("Find bugs", responses, _report(), "safe", None)
+    p = audit._build_audit_prompt("Find bugs", responses, _report())
     assert "Bug in x.py:1" in p
     assert "weight=0.70" in p
     assert "Bug-Report" in p  # Format-Vorgabe vorhanden
@@ -28,7 +28,7 @@ def test_prompt_skips_errored_and_empty_responses():
         SubagentResponse(agent="b", model="m", response="", error="timeout"),
         SubagentResponse(agent="c", model="m", response="   "),  # leer
     ]
-    p = audit._build_audit_prompt("Find bugs", responses, _report(), "safe", None)
+    p = audit._build_audit_prompt("Find bugs", responses, _report())
     assert "echter Befund" in p
     assert "Auditor: b" not in p
     assert "Auditor: c" not in p

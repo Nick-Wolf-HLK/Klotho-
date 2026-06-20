@@ -141,10 +141,6 @@ dry_run_default = false
 
 [rubric]
 criteria = ["completeness", "feasibility", "originality", "depth"]
-
-[compression]
-# TSCG-inspirierte Token-Kompression (siehe unten)
-level = "safe"          # off | safe | aggressive
 ```
 
 Run `klotho config` to set roles interactively (uses `questionary`).
@@ -211,28 +207,12 @@ Statt alles einzuspeisen, holt sich jeder Agent gezielt die Dateien, die er
 braucht. (Die einfachere „Code-Einspeisung" existiert weiterhin als
 Bibliotheksfunktion in `klotho/codebase.py` für kleine Repos.)
 
-## Token-Kompression (TSCG-inspiriert)
+## Sprache / Language (Deutsch · English)
 
-Judge *und* Synthesizer bekommen **alle** Subagenten-Antworten in den Prompt —
-bei mehreren Subagenten ist das Klothos Token-Hotspot. Klotho komprimiert diese
-Payloads deterministisch, bevor sie verschickt werden:
-
-| `level`      | Wirkung |
-|--------------|---------|
-| `off`        | keine Kompression |
-| `safe`       | verlustarm: trailing Whitespace + überzählige Leerzeilen entfernt, Schema kompakt serialisiert. Code/Inhalt bleibt unangetastet. (Standard) |
-| `aggressive` | zusätzlich: sehr lange Antworten werden mit Marker gekürzt |
-
-Nach jeder Pipeline zeigt Klotho die geschätzte Ersparnis (`◈ TSCG …`).
-
-> Hinweis: Die Kompression greift auf den Freitext-Antworten der Subagenten
-> (Reports an Judge/Synthese) — real ~10–20 % (mehr mit `aggressive`). Die
-> spektakulären Schema-Werte von TSCG (50–72 %) gelten für Tool-Schemas.
-
-Die Idee stammt von **[TSCG](https://github.com/SKZL-AI/tscg)** (Furkan Sakizli /
-SKZL-AI) und der **pi-tscg**-Extension für den Pi-Coding-Agent. Klotho portiert
-das *Prinzip* (deterministische Payload-Kompression) nach Python — der TSCG-Code
-selbst wird nicht eingebunden.
+Beim Start fragt Klotho **„Sprache / Language?"**. Die Wahl steuert beides:
+die **UI-Texte** (Menüs, Onboarding, Dashboard) *und* die **Sprache der
+LLM-Outputs** — Bug-Reports, Pläne und Judge-Zusammenfassungen erscheinen auf
+Deutsch oder Englisch.
 
 ## Cloud-model proxy (only if needed)
 

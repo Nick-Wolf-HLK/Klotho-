@@ -49,7 +49,6 @@ class OrchestratorConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     rubric: RubricConfig = field(default_factory=RubricConfig)
     base_url: str = "http://127.0.0.1:11434/v1"
-    compression: str = "safe"  # off | safe | aggressive (TSCG-inspiriert)
     context_budget: int = 60000  # Token-Budget für eingespeisten Code
     agent_max_iterations: int = 60  # Schritte pro agentischem Subagenten
 
@@ -148,7 +147,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
     subs_raw = data.get("subagents", [])
     exec_raw = data.get("execution", {})
     rubric_raw = data.get("rubric", {})
-    compression_raw = data.get("compression", {})
     context_raw = data.get("context", {})
     agent_raw = data.get("agent", {})
     subagents = [
@@ -172,7 +170,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
             "completeness", "feasibility", "originality", "depth"
         ])),
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
-        compression=compression_raw.get("level", "safe"),
         context_budget=int(context_raw.get("budget", 60000)),
         agent_max_iterations=int(agent_raw.get("max_iterations", 60)),
     )
@@ -213,9 +210,6 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append("")
     lines.append("[rubric]")
     lines.append(f'criteria = {[c for c in cfg.rubric.criteria]}')
-    lines.append("")
-    lines.append("[compression]")
-    lines.append(f'level = "{cfg.compression}"  # off | safe | aggressive')
     lines.append("")
     lines.append("[context]")
     lines.append(f'budget = {cfg.context_budget}  # Token-Budget für eingespeisten Code')

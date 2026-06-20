@@ -1,6 +1,5 @@
-"""Codebase-Scanner: liest den echten Quellcode eines Ordners ein und baut
-einen (TSCG-)komprimierten Kontext-String für die Subagenten — unter einem
-Token-Budget.
+"""Codebase-Scanner: liest den echten Quellcode eines Ordners ein und baut einen
+Kontext-String für die Subagenten — unter einem Token-Budget.
 
 Filtert aggressiv Ballast (virtuelle Umgebungen, eingebettete Interpreter,
 node_modules, Builds, Caches, Binär-/Lock-Dateien, Riesendateien), damit auch
@@ -12,8 +11,6 @@ import fnmatch
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from . import compress
 
 IGNORE_DIR_PATTERNS = (
     ".git", ".hg", ".svn",
@@ -82,14 +79,17 @@ def collect_source_files(root: Path) -> list[FileEntry]:
     return out
 
 
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
 def build_context(
     root: str | Path,
     *,
     budget_tokens: int = DEFAULT_BUDGET_TOKENS,
-    level: str = "safe",
 ) -> tuple[str, ScanResult]:
-    """Sammelt Quellcode bis zum Token-Budget, komprimiert ihn und baut den
-    Kontext-String. Kleine Dateien zuerst → maximale Datei-Abdeckung."""
+    """Sammelt Quellcode bis zum Token-Budget und baut den Kontext-String.
+    Kleine Dateien zuerst → maximale Datei-Abdeckung."""
     root = Path(root).expanduser().resolve()
     files = collect_source_files(root)
     files.sort(key=lambda f: f.size)
@@ -101,9 +101,8 @@ def build_context(
             text = (root / fe.relpath).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        text = compress.compress_text(text, level)
         block = f"### FILE: {fe.relpath}\n{text}\n"
-        t = compress.estimate_tokens(block)
+        t = _estimate_tokens(block)
         if result.tokens + t > budget_tokens and result.collected:
             result.truncated = True
             break

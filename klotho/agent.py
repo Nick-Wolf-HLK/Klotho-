@@ -11,6 +11,7 @@ import json
 import time
 from typing import Callable, Optional
 
+from . import i18n
 from .llm_client import LLMClient
 from .config import SubagentConfig
 from .plan_schema import SubagentResponse
@@ -94,7 +95,7 @@ async def run_agentic_subagent(
 ) -> SubagentResponse:
     tools = CodeTools(root)
     messages: list[dict] = [
-        {"role": "system", "content": AGENT_SYSTEM},
+        {"role": "system", "content": AGENT_SYSTEM + " " + i18n.output_directive()},
         {"role": "user", "content": prompt},
     ]
     start = time.perf_counter()

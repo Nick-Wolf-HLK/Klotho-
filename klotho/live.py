@@ -16,6 +16,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from . import i18n
+
 _SPIN = "⣾⣽⣻⢿⡿⣟⣯⣷"          # Braille-Spinner
 _THREAD_W = 60                  # Breite des laufenden Fadens
 
@@ -54,12 +56,14 @@ def _render(states: list[_AgentState], start: float, frame: int) -> Panel:
     done = sum(1 for s in states if s.status in ("fertig", "fehler"))
     total_files = sum(s.files for s in states)
 
+    files_word = i18n.t("Dateien", "files")
     head = Text()
     head.append(f"{spin}  ", style="bold cyan")
-    head.append("Klotho spinnt den Faden", style="bold cyan")
+    head.append(i18n.t("Klotho spinnt den Faden", "Klotho is spinning the thread"), style="bold cyan")
     head.append(
-        f"    {active} aktiv · {done}/{len(states)} fertig · "
-        f"{total_files} Dateien · {_fmt(elapsed)}",
+        f"    {active} {i18n.t('aktiv', 'active')} · "
+        f"{done}/{len(states)} {i18n.t('fertig', 'done')} · "
+        f"{total_files} {files_word} · {_fmt(elapsed)}",
         style="dim",
     )
 
@@ -74,22 +78,23 @@ def _render(states: list[_AgentState], start: float, frame: int) -> Panel:
             act = s.activity
         elif s.status == "fertig":
             icon, act_style = Text("✓", style="bold green"), "green"
-            act = "fertig"
+            act = i18n.t("fertig", "done")
         elif s.status == "fehler":
             icon, act_style = Text("✘", style="bold red"), "red"
             act = s.activity
         else:
             icon, act_style = Text("◌", style="dim"), "dim"
-            act = "wartet …"
+            act = i18n.t("wartet …", "waiting …")
         tbl.add_row(
             icon,
             Text(s.name, style="bold"),
             Text(act, style=act_style),
-            Text(f"{s.files} Dateien · {s.calls} ⚙", style="yellow"),
+            Text(f"{s.files} {files_word} · {s.calls} ⚙", style="yellow"),
         )
 
     body = Group(head, Text(""), _thread_line(frame), Text(""), tbl)
-    return Panel(body, border_style="cyan", title="[bold cyan]🧵 Code-Audit läuft[/]",
+    return Panel(body, border_style="cyan",
+                 title=i18n.t("[bold cyan]🧵 Code-Audit läuft[/]", "[bold cyan]🧵 Code audit running[/]"),
                  padding=(1, 3))
 
 

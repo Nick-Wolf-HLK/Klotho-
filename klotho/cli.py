@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from . import audit, codebase, compress, live, ui
+from . import audit, codebase, live, ui
 from .config import (
     DEFAULT_CONFIG_PATH,
     OrchestratorConfig,
@@ -103,14 +103,9 @@ def _run_pipeline(
         )
     ui.show_subagent_responses(responses)
 
-    comp_stats = compress.CompressionStats(level=cfg.compression)
-
     ui.info(f"Judging with {cfg.judge_model}…")
     report = asyncio.run(
-        judge_responses(
-            client, cfg.judge_model, prompt, responses, cfg.rubric,
-            compression=cfg.compression, stats=comp_stats,
-        )
+        judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
     )
     ui.show_judge_report(report)
 
@@ -120,12 +115,8 @@ def _run_pipeline(
     if root:
         ui.info(f"Building consolidated bug report with {synth_model}…")
         md = asyncio.run(
-            audit.synthesize_bug_report(
-                client, synth_model, prompt, responses, report,
-                compression=cfg.compression, stats=comp_stats,
-            )
+            audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
         )
-        ui.show_compression_stats(comp_stats)
         ui.show_model_ranking(report)
         ui.show_bug_report(md)
         ui.success("Bug report done.")
@@ -133,13 +124,9 @@ def _run_pipeline(
 
     ui.info(f"Synthesizing master plan with {synth_model}…")
     plan = asyncio.run(
-        synthesize_plan(
-            client, synth_model, prompt, responses, report,
-            compression=cfg.compression, stats=comp_stats,
-        )
+        synthesize_plan(client, synth_model, prompt, responses, report)
     )
     ui.show_master_plan(plan)
-    ui.show_compression_stats(comp_stats)
     ui.show_model_ranking(report)
 
     if plan_only:

@@ -7,6 +7,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from . import i18n
 from .plan_schema import JudgeReport, MasterPlan, SubagentResponse
 
 console = Console()
@@ -86,34 +87,27 @@ def show_model_ranking(report) -> None:
     for i, v in enumerate(ranked):
         marker = medals[i] if i < 3 else f"{i + 1}."
         parts.append(f"{marker} [cyan]{v.agent}[/] [dim]({v.total_score:.1f})[/]")
-    console.print(f"[bold]🏆 Modell-Ranking:[/]  " + "  ·  ".join(parts))
-
-
-def show_compression_stats(stats) -> None:
-    """Token-Ersparnis der TSCG-inspirierten Kompression (falls aktiv)."""
-    if getattr(stats, "level", "off") == "off" or stats.before <= 0:
-        return
-    console.print(
-        f"[dim]◈ TSCG[/] [cyan]{stats.level}[/] [dim]·[/] "
-        f"{stats.before} → {stats.after} tok [dim]·[/] "
-        f"[green]−{stats.ratio:.0%}[/] [dim]({stats.saved} Tokens gespart, geschätzt)[/]"
-    )
+    label = i18n.t("🏆 Modell-Ranking:", "🏆 Model ranking:")
+    console.print(f"[bold]{label}[/]  " + "  ·  ".join(parts))
 
 
 def show_bug_report(md: str) -> str | None:
     """Zeigt den konsolidierten Bug-Report und speichert ihn als Markdown-Datei
     (zum Weitergeben an ein Fix-LLM oder zum Selber-Fixen)."""
-    console.print(Panel(Markdown(md), title="[bold red]Bug-Report[/]", border_style="red"))
+    console.print(Panel(Markdown(md), title=i18n.t("[bold red]Bug-Report[/]", "[bold red]Bug Report[/]"),
+                        border_style="red"))
     from datetime import datetime
     from pathlib import Path
 
     path = Path.cwd() / f"klotho-bugreport-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
     try:
         path.write_text(md, encoding="utf-8")
-        console.print(f"[green]✔ Bug-Report gespeichert:[/] {path}")
+        console.print(i18n.t(f"[green]✔ Bug-Report gespeichert:[/] {path}",
+                             f"[green]✔ Bug report saved:[/] {path}"))
         return str(path)
     except OSError as exc:
-        console.print(f"[yellow]Konnte Report nicht speichern: {exc}[/]")
+        console.print(i18n.t(f"[yellow]Konnte Report nicht speichern: {exc}[/]",
+                             f"[yellow]Could not save report: {exc}[/]"))
         return None
 
 

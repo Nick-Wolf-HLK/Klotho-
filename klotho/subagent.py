@@ -5,6 +5,7 @@ import asyncio
 import time
 from typing import Optional
 
+from . import i18n
 from .config import SubagentConfig
 from .llm_client import LLMClient
 from .plan_schema import SubagentResponse
@@ -41,7 +42,7 @@ async def run_subagent(
     else:
         system = SUBAGENT_SYSTEM
     messages = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": system + " " + i18n.output_directive()},
         {"role": "user", "content": final_prompt},
     ]
     start = time.perf_counter()

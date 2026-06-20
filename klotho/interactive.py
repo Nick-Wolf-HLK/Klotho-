@@ -16,7 +16,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from . import audit, codebase, compress, intro, live, ui
+from . import audit, codebase, i18n, intro, live, ui
 from .config import (
     OrchestratorConfig,
     SubagentConfig,
@@ -34,107 +34,101 @@ console = Console()
 
 
 def _pick_orchestrator(available: list[str]) -> str:
-    """Dropdown single-select for the orchestrator model."""
     default = "glm-5.2:cloud" if "glm-5.2:cloud" in available else available[0]
     return questionary.select(
-        "Welches Modell soll ORCHESTRATOR sein (plant & synthetisiert)?",
-        choices=available,
-        default=default,
-        use_arrow_keys=True,
+        i18n.t("Welches Modell soll ORCHESTRATOR sein (plant & synthetisiert)?",
+               "Which model should be the ORCHESTRATOR (plans & synthesizes)?"),
+        choices=available, default=default, use_arrow_keys=True,
     ).ask()
 
 
 def _pick_judge(available: list[str]) -> str:
-    """Dropdown single-select for the judge model."""
     default = "gpt-oss:20b" if "gpt-oss:20b" in available else available[0]
     return questionary.select(
-        "Welches Modell soll JUDGE sein (bewertet neutral)?",
-        choices=available,
-        default=default,
-        use_arrow_keys=True,
+        i18n.t("Welches Modell soll JUDGE sein (bewertet neutral)?",
+               "Which model should be the JUDGE (rates neutrally)?"),
+        choices=available, default=default, use_arrow_keys=True,
     ).ask()
 
 
 def _pick_subagents(available: list[str]) -> list[str]:
-    """Multi-select dropdown for subagents (space to toggle, enter to confirm)."""
     return questionary.checkbox(
-        "Wähle deine SUBAGENTEN (Leertaste = an/abwählen, Enter = bestätigen):",
+        i18n.t("Wähle deine SUBAGENTEN (Leertaste = an/abwählen, Enter = bestätigen):",
+               "Pick your SUBAGENTS (space = toggle, Enter = confirm):"),
         choices=available,
     ).ask()
 
 
 def _ask_topic() -> Optional[str]:
-    """Fragt nach dem Thema.
-
-    Wiederholt bei leerer Eingabe (Klotho fragt freundlich nach) und bricht
-    nur bei Esc/Ctrl+C ab (questionary liefert dann None).
-    """
+    """Fragt nach dem Thema; wiederholt bei leerer Eingabe, bricht nur bei Esc ab."""
     while True:
-        topic = questionary.text("Worüber soll ich planen?").ask()
+        topic = questionary.text(
+            i18n.t("Worüber soll ich planen?", "What should I work on?")
+        ).ask()
         if topic is None:  # Esc / Ctrl+C
             return None
         topic = topic.strip()
         if topic:
             return topic
-        ui.klotho_say(
-            "Du hast noch kein Thema genannt — sag mir kurz, worüber ich "
-            "planen soll. [dim](Esc bricht ab.)[/]"
-        )
+        ui.klotho_say(i18n.t(
+            "Du hast noch kein Thema genannt — sag mir kurz, worüber ich planen soll. [dim](Esc bricht ab.)[/]",
+            "You haven't given me a topic yet — tell me what to work on. [dim](Esc cancels.)[/]"))
 
 
 def _ask_project_root() -> Optional[str]:
-    """Bietet den AKTUELLEN Ordner (cwd) zur agentischen Code-Analyse an.
-
-    Klotho analysiert immer den Ordner, aus dem es gestartet wurde — du musst
-    keinen Pfad eintippen, nur bestätigen.
-    """
+    """Bietet den AKTUELLEN Ordner (cwd) zur agentischen Code-Analyse an."""
     cwd = Path.cwd()
     n = len(codebase.collect_source_files(cwd))
     if n == 0:
-        ui.klotho_say(
+        ui.klotho_say(i18n.t(
             f"Kein Quellcode im aktuellen Ordner ([bold]{cwd}[/]) — ich plane ohne Code. "
-            "[dim](Starte Klotho im Ordner deines Codes, um ihn zu analysieren.)[/]"
-        )
+            "[dim](Starte Klotho im Ordner deines Codes, um ihn zu analysieren.)[/]",
+            f"No source code in the current folder ([bold]{cwd}[/]) — planning without code. "
+            "[dim](Start Klotho inside your code folder to analyse it.)[/]"))
         return None
     use = questionary.confirm(
-        f"Code im aktuellen Ordner analysieren? ({cwd} — {n} Quelldateien)",
+        i18n.t(f"Code im aktuellen Ordner analysieren? ({cwd} — {n} Quelldateien)",
+               f"Analyse the code in the current folder? ({cwd} — {n} source files)"),
         default=True,
     ).ask()
     if not use:
         return None
-    ui.klotho_say("Jeder Subagent durchsucht diesen Ordner selbst (read-only).")
+    ui.klotho_say(i18n.t(
+        "Jeder Subagent durchsucht diesen Ordner selbst (read-only).",
+        "Each subagent explores this folder itself (read-only)."))
     return str(cwd)
 
 
 def _ask_mode() -> tuple[bool, bool]:
-    """Ask whether to execute and whether dry-run."""
     mode = questionary.select(
-        "Was soll am Ende passieren?",
+        i18n.t("Was soll am Ende passieren?", "What should happen at the end?"),
         choices=[
-            "Nur Plan anzeigen (nicht ausführen)",
-            "Plan ausführen (vollautomatisch)",
-            "Plan ausführen — nur simulieren (dry-run)",
+            questionary.Choice(i18n.t("Nur Plan anzeigen (nicht ausführen)",
+                                      "Show result only (don't execute)"), "plan"),
+            questionary.Choice(i18n.t("Plan ausführen (vollautomatisch)",
+                                      "Execute plan (full-auto)"), "exec"),
+            questionary.Choice(i18n.t("Plan ausführen — nur simulieren (dry-run)",
+                                      "Execute — dry-run only"), "dry"),
         ],
-        default="Nur Plan anzeigen (nicht ausführen)",
         use_arrow_keys=True,
     ).ask()
-    if mode.startswith("Plan ausführen (vollautomatisch"):
+    if mode == "exec":
         return True, False
-    if mode.startswith("Plan ausführen — nur simulieren"):
+    if mode == "dry":
         return True, True
     return False, False
 
 
 def _ask_refine() -> bool:
-    """Ask whether to refine the prompt first."""
     return questionary.confirm(
-        "Soll Klotho deinen Prompt vorher verfeinern?",
+        i18n.t("Soll Klotho deinen Prompt vorher verfeinern?",
+               "Should Klotho refine your prompt first?"),
         default=True,
     ).ask()
 
 
 def _confirm_run() -> bool:
-    return questionary.confirm("Losgehen?", default=True).ask()
+    return questionary.confirm(i18n.t("Losgehen?", "Let's go?"), default=True).ask()
 
 
 def _run_pipeline(
@@ -149,12 +143,13 @@ def _run_pipeline(
     client = LLMClient(base_url=cfg.base_url)
     subagents = cfg.subagents
     if not subagents:
-        ui.error("Keine Subagenten gewählt.")
+        ui.error(i18n.t("Keine Subagenten gewählt.", "No subagents selected."))
         return
 
     refine_prompt: Optional[str] = None
     if refine:
-        ui.info(f"Klotho verfeinert deinen Prompt ({cfg.orchestrator_model})…")
+        ui.info(i18n.t(f"Klotho verfeinert deinen Prompt ({cfg.orchestrator_model})…",
+                       f"Klotho is refining your prompt ({cfg.orchestrator_model})…"))
         refine_sys = (
             "Refine the user's code-audit request so it elicits CONCRETE, evidence-backed "
             "findings (bugs, logic errors, quality issues) with file:line — NOT a step-by-step "
@@ -174,7 +169,9 @@ def _run_pipeline(
             )
         )
         refine_prompt = refine_task.text
-        console.print(Panel(Markdown(refine_prompt), title="Verfeinerter Prompt", border_style="cyan"))
+        console.print(Panel(Markdown(refine_prompt),
+                            title=i18n.t("Verfeinerter Prompt", "Refined prompt"),
+                            border_style="cyan"))
 
     if root:
         responses = asyncio.run(
@@ -185,7 +182,8 @@ def _run_pipeline(
             )
         )
     else:
-        ui.info(f"Schicke an {len(subagents)} Subagenten parallel…")
+        ui.info(i18n.t(f"Schicke an {len(subagents)} Subagenten parallel…",
+                       f"Dispatching to {len(subagents)} subagents in parallel…"))
         responses = asyncio.run(
             run_subagents_parallel(
                 client, subagents, prompt, refine_prompt=refine_prompt, root=root,
@@ -194,14 +192,9 @@ def _run_pipeline(
         )
     ui.show_subagent_responses(responses)
 
-    comp_stats = compress.CompressionStats(level=cfg.compression)
-
-    ui.info(f"Bewerte mit {cfg.judge_model}…")
+    ui.info(i18n.t(f"Bewerte mit {cfg.judge_model}…", f"Judging with {cfg.judge_model}…"))
     report = asyncio.run(
-        judge_responses(
-            client, cfg.judge_model, prompt, responses, cfg.rubric,
-            compression=cfg.compression, stats=comp_stats,
-        )
+        judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
     )
     ui.show_judge_report(report)
 
@@ -209,36 +202,30 @@ def _run_pipeline(
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
-        ui.info(f"Erstelle konsolidierten Bug-Report mit {synth_model}…")
+        ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",
+                       f"Building consolidated bug report with {synth_model}…"))
         md = asyncio.run(
-            audit.synthesize_bug_report(
-                client, synth_model, prompt, responses, report,
-                compression=cfg.compression, stats=comp_stats,
-            )
+            audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
         )
-        ui.show_compression_stats(comp_stats)
         ui.show_model_ranking(report)
         ui.show_bug_report(md)
-        ui.success("Bug-Report fertig.")
+        ui.success(i18n.t("Bug-Report fertig.", "Bug report done."))
         return
 
-    ui.info(f"Synthetisiere Masterplan mit {synth_model}…")
+    ui.info(i18n.t(f"Synthetisiere Masterplan mit {synth_model}…",
+                   f"Synthesizing master plan with {synth_model}…"))
     plan = asyncio.run(
-        synthesize_plan(
-            client, synth_model, prompt, responses, report,
-            compression=cfg.compression, stats=comp_stats,
-        )
+        synthesize_plan(client, synth_model, prompt, responses, report)
     )
     ui.show_master_plan(plan)
-    ui.show_compression_stats(comp_stats)
     ui.show_model_ranking(report)
 
     if plan_only:
-        ui.success("Plan-only: fertig.")
+        ui.success(i18n.t("Plan-only: fertig.", "Plan-only: done."))
         return
 
     dry = dry_run or cfg.execution.dry_run_default
-    ui.info(f"Führe Plan aus (dry_run={dry})…")
+    ui.info(i18n.t(f"Führe Plan aus (dry_run={dry})…", f"Executing plan (dry_run={dry})…"))
     executor = Executor(
         root_lock=cfg.execution.root_lock,
         log_file=cfg.execution.log_file,
@@ -247,42 +234,62 @@ def _run_pipeline(
     results = executor.execute(plan)
     for r in results:
         status = "ok" if r.get("ok") else "FAILED"
-        ui.info(f"  Schritt {r['step_id']}: {r['title']} -> {status}")
-    ui.success("Ausführung beendet.")
+        ui.info(i18n.t(f"  Schritt {r['step_id']}: {r['title']} -> {status}",
+                       f"  Step {r['step_id']}: {r['title']} -> {status}"))
+    ui.success(i18n.t("Ausführung beendet.", "Execution complete."))
 
 
 def _show_summary(orch: str, judge: str, subs: list[str], execute: bool, dry: bool, refine: bool) -> None:
     console.print()
-    table = Table(title="Konfiguration", show_header=True, border_style="dim")
-    table.add_column("Rolle", style="cyan")
-    table.add_column("Modell", style="magenta")
+    _yes, _no = i18n.t("ja", "yes"), i18n.t("nein", "no")
+    table = Table(title=i18n.t("Konfiguration", "Configuration"), show_header=True, border_style="dim")
+    table.add_column(i18n.t("Rolle", "Role"), style="cyan")
+    table.add_column(i18n.t("Modell", "Model"), style="magenta")
     table.add_row("Orchestrator", orch)
     table.add_row("Judge", judge)
-    table.add_row("Subagenten", ", ".join(subs))
-    table.add_row("Modus", "Execute" if execute else "Plan-only")
-    table.add_row("Dry-Run", "ja" if dry else "nein")
-    table.add_row("Refine", "ja" if refine else "nein")
+    table.add_row(i18n.t("Subagenten", "Subagents"), ", ".join(subs))
+    table.add_row(i18n.t("Modus", "Mode"), "Execute" if execute else "Plan-only")
+    table.add_row("Dry-Run", _yes if dry else _no)
+    table.add_row("Refine", _yes if refine else _no)
     console.print(table)
     console.print()
 
 
+def _ask_language() -> None:
+    """Sprachwahl beim Start — steuert UI-Texte UND die Sprache der LLM-Outputs
+    (Reports, Bug-Reports, Pläne)."""
+    lang = questionary.select(
+        "Sprache / Language?",
+        choices=[
+            questionary.Choice("Deutsch", "de"),
+            questionary.Choice("English", "en"),
+        ],
+        use_arrow_keys=True,
+    ).ask()
+    i18n.set_language(lang or "de")
+
+
 def start_interactive() -> None:
     """Main interactive session loop with dropdown menus."""
+    _ask_language()
     intro.play_intro(console)
 
     base_url = load_opencode_base_url() or "http://127.0.0.1:11434/v1"
-    base_cfg = load_config()  # compression/context_budget (models.toml oder Defaults)
+    base_cfg = load_config()  # context_budget/max_iterations (models.toml oder Defaults)
 
     from . import cloud_registry
     if cloud_registry.cache_is_stale():
-        with console.status("[cyan]Lade verfügbare Ollama-Cloud-Modelle …[/]", spinner="dots"):
+        with console.status(
+            i18n.t("[cyan]Lade verfügbare Ollama-Cloud-Modelle …[/]",
+                   "[cyan]Loading available Ollama Cloud models …[/]"), spinner="dots"):
             try:
                 cloud_registry.refresh_cache(timeout=15)
             except Exception:
                 pass  # offline → nur lokale + konfigurierte Modelle
     available = all_known_models()
     if not available:
-        console.print("[red]Keine Modelle gefunden. Läuft Ollama?[/]")
+        console.print(i18n.t("[red]Keine Modelle gefunden. Läuft Ollama?[/]",
+                             "[red]No models found. Is Ollama running?[/]"))
         return
 
     intro.show_onboarding(console)
@@ -293,18 +300,19 @@ def start_interactive() -> None:
             intro.compact_header(console)
         first = False
         console.print()
-        console.print(Panel.fit("[bold]Neue Session[/]", border_style="blue"))
+        console.print(Panel.fit(i18n.t("[bold]Neue Session[/]", "[bold]New session[/]"),
+                                border_style="blue"))
 
         # 1. Orchestrator-Modell wählen (Dropdown)
         orch_model = _pick_orchestrator(available)
         if not orch_model:
-            console.print("[dim]Abgebrochen.[/]")
+            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
             return
 
         # 2. Judge-Modell wählen (Dropdown)
         judge_model = _pick_judge(available)
         if not judge_model:
-            console.print("[dim]Abgebrochen.[/]")
+            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
             return
 
         # 3. Subagenten wählen (Multi-Select Dropdown)
@@ -313,19 +321,18 @@ def start_interactive() -> None:
         while True:
             picked = _pick_subagents(available)
             if picked is None:  # Esc / Ctrl+C → Session abbrechen
-                console.print("[dim]Abgebrochen.[/]")
+                console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
                 return
             if picked:
                 break
-            console.print(
-                "[yellow]Mindestens einen Subagenten mit der "
-                "[bold]Leertaste[/] markieren, dann Enter.[/]"
-            )
+            console.print(i18n.t(
+                "[yellow]Mindestens einen Subagenten mit der [bold]Leertaste[/] markieren, dann Enter.[/]",
+                "[yellow]Mark at least one subagent with [bold]space[/], then Enter.[/]"))
 
         # 4. Thema/Prompt abfragen (eigene Nachfrage-Schleife in _ask_topic)
         topic = _ask_topic()
         if topic is None:  # Esc / Ctrl+C
-            console.print("[dim]Abgebrochen.[/]")
+            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
             return
 
         # 4b. Optional: Projektordner, den die Subagenten agentisch durchsuchen
@@ -344,7 +351,8 @@ def start_interactive() -> None:
 
         # Bestätigen
         if not _confirm_run():
-            console.print("[dim]Abgebrochen — zurück zum Start.[/]")
+            console.print(i18n.t("[dim]Abgebrochen — zurück zum Start.[/]",
+                                 "[dim]Cancelled — back to start.[/]"))
             continue
 
         cfg = OrchestratorConfig(
@@ -355,7 +363,6 @@ def start_interactive() -> None:
                 for i, m in enumerate(picked)
             ],
             base_url=base_url,
-            compression=base_cfg.compression,
             context_budget=base_cfg.context_budget,
             agent_max_iterations=base_cfg.agent_max_iterations,
         )
@@ -370,13 +377,14 @@ def start_interactive() -> None:
                 root=root,
             )
         except KeyboardInterrupt:
-            console.print("\n[yellow]Abgebrochen.[/]")
+            console.print(i18n.t("\n[yellow]Abgebrochen.[/]", "\n[yellow]Cancelled.[/]"))
         except Exception as exc:
-            ui.error(f"Fehler: {exc}")
+            ui.error(i18n.t(f"Fehler: {exc}", f"Error: {exc}"))
 
         # Loop: weitere Session?
         console.print()
-        again = questionary.confirm("Noch eine Session?", default=False).ask()
+        again = questionary.confirm(
+            i18n.t("Noch eine Session?", "Another session?"), default=False).ask()
         if not again:
-            console.print("[dim]Tschüss! 👋[/]")
+            console.print(i18n.t("[dim]Tschüss! 👋[/]", "[dim]Bye! 👋[/]"))
             break

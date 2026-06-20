@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import compress
-from .compress import CompressionStats
+from . import i18n
 from .llm_client import LLMClient
 from .plan_schema import JudgeReport, SubagentResponse
 
@@ -25,8 +24,6 @@ def _build_audit_prompt(
     original_prompt: str,
     responses: list[SubagentResponse],
     report: JudgeReport,
-    compression: str,
-    stats: Optional[CompressionStats],
 ) -> str:
     weight_map = {v.agent: v.weight for v in report.verdicts}
     blocks = []
@@ -34,26 +31,44 @@ def _build_audit_prompt(
         if r.error or not (r.response or "").strip():
             continue
         w = weight_map.get(r.agent, 0.0)
-        body = compress.compress_text(r.response, compression, stats=stats)
-        blocks.append(f"### Auditor: {r.agent} (weight={w:.2f})\n{body}")
+        blocks.append(f"### Auditor: {r.agent} (weight={w:.2f})\n{r.response}")
     joined = "\n\n".join(blocks)
+
+    fmt = i18n.t(
+        de=(
+            "Erzeuge EINEN konsolidierten Bug-Report in deutschem Markdown, genau so:\n\n"
+            "# Bug-Report\n\n"
+            "Ein Satz Zusammenfassung + Zähltabelle der Befunde je Schweregrad.\n\n"
+            "Dann je Befund, gruppiert nach Schweregrad (🔴 Kritisch, 🟠 Hoch, 🟡 Mittel, 🔵 Niedrig):\n\n"
+            "### 🔴 <Kurztitel>\n"
+            "- **Datei:Zeile:** `pfad/datei.py:42`\n"
+            "- **Kategorie:** Bug | Logikfehler | Qualität | Sicherheit\n"
+            "- **Problem:** worin der Fehler besteht und was er bewirkt\n"
+            "- **Beleg:** das zitierte Code-Stück (falls ein Auditor es geliefert hat)\n"
+            "- **Fix:** konkreter Lösungsvorschlag (gern mit Code)\n\n"
+            "Regeln: Nur Befunde mit konkreter Datei/Zeile. Erfinde NICHTS. Befunde ohne "
+            "Code-Beleg oder mit Widerspruch als '(unbestätigt — verifizieren)' kennzeichnen. "
+            "Keine Schritt-für-Schritt-Anleitung."
+        ),
+        en=(
+            "Produce ONE consolidated bug report in English Markdown, exactly like this:\n\n"
+            "# Bug Report\n\n"
+            "One-sentence summary + a count table of findings per severity.\n\n"
+            "Then each finding, grouped by severity (🔴 Critical, 🟠 High, 🟡 Medium, 🔵 Low):\n\n"
+            "### 🔴 <short title>\n"
+            "- **File:Line:** `path/file.py:42`\n"
+            "- **Category:** Bug | Logic | Quality | Security\n"
+            "- **Problem:** what is wrong and its impact\n"
+            "- **Evidence:** the quoted code snippet (if an auditor provided one)\n"
+            "- **Fix:** concrete suggested fix (code welcome)\n\n"
+            "Rules: only findings with a concrete file/line. Invent NOTHING. Mark findings "
+            "without code evidence or with disagreement as '(unconfirmed — verify)'. "
+            "No step-by-step plan."
+        ),
+    )
     return (
-        f"AUDIT-AUFTRAG:\n{original_prompt}\n\n"
-        f"UNABHÄNGIGE AUDIT-REPORTS:\n{joined}\n\n"
-        "Erzeuge EINEN konsolidierten Bug-Report in deutschem Markdown, genau so:\n\n"
-        "# Bug-Report\n\n"
-        "Ein Satz Zusammenfassung + Zähltabelle der Befunde je Schweregrad.\n\n"
-        "Dann je Befund, gruppiert nach Schweregrad in dieser Reihenfolge "
-        "(🔴 Kritisch, 🟠 Hoch, 🟡 Mittel, 🔵 Niedrig):\n\n"
-        "### 🔴 <Kurztitel>\n"
-        "- **Datei:Zeile:** `pfad/datei.py:42`\n"
-        "- **Kategorie:** Bug | Logikfehler | Qualität | Sicherheit\n"
-        "- **Problem:** worin der Fehler besteht und was er bewirkt\n"
-        "- **Beleg:** das zitierte Code-Stück (falls ein Auditor es geliefert hat)\n"
-        "- **Fix:** konkreter Lösungsvorschlag (gern mit Code)\n\n"
-        "Regeln: Nur Befunde mit konkreter Datei/Zeile aufnehmen. Erfinde NICHTS. "
-        "Befunde ohne Code-Beleg oder mit Widerspruch zwischen Auditoren als "
-        "'(unbestätigt — verifizieren)' kennzeichnen. Keine Schritt-für-Schritt-Anleitung."
+        f"AUDIT TASK:\n{original_prompt}\n\n"
+        f"INDEPENDENT AUDIT REPORTS:\n{joined}\n\n{fmt}"
     )
 
 
@@ -63,16 +78,13 @@ async def synthesize_bug_report(
     original_prompt: str,
     responses: list[SubagentResponse],
     report: JudgeReport,
-    *,
-    compression: str = "safe",
-    stats: Optional[CompressionStats] = None,
 ) -> str:
     """Gibt den konsolidierten Bug-Report als Markdown-String zurück."""
-    user_prompt = _build_audit_prompt(original_prompt, responses, report, compression, stats)
+    user_prompt = _build_audit_prompt(original_prompt, responses, report)
     result = await client.chat(
         model,
         [
-            {"role": "system", "content": AUDIT_SYNTH_SYSTEM},
+            {"role": "system", "content": AUDIT_SYNTH_SYSTEM + " " + i18n.output_directive()},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
