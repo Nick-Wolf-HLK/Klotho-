@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from .llm_client import LLMClient
 from .config import SubagentConfig
@@ -56,6 +56,19 @@ def _clean_assistant(msg: dict) -> dict:
     return out
 
 
+def _activity(name: str, args: dict) -> str:
+    """Kurzbeschreibung der aktuellen Werkzeug-Aktion für die Live-Anzeige."""
+    if name == "read_file":
+        return f"liest {args.get('path', '?')}"
+    if name == "grep":
+        return f"grep „{args.get('pattern', '')}\""
+    if name == "list_dir":
+        return f"listet {args.get('path', '.')}"
+    if name == "find_files":
+        return f"sucht {args.get('glob', '*')}"
+    return name
+
+
 def _evict_old_tool_results(messages: list[dict]) -> None:
     """Managed memory: behält nur die jüngsten KEEP_RAW_RESULTS rohen Tool-
     Ergebnisse, ältere werden durch einen Platzhalter ersetzt. Die Notizen des
@@ -77,6 +90,7 @@ async def run_agentic_subagent(
     *,
     max_iterations: int = MAX_ITERATIONS,
     timeout: Optional[float] = None,
+    progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> SubagentResponse:
     tools = CodeTools(root)
     messages: list[dict] = [
@@ -130,6 +144,8 @@ async def run_agentic_subagent(
                 total_calls += 1
                 if name == "read_file" and args.get("path"):
                     files_read.add(args["path"])
+                if progress:
+                    progress(_activity(name, args), len(files_read), total_calls)
                 result = tools.dispatch(name, args)[:MAX_TOOL_RESULT_CHARS]
                 messages.append({
                     "role": "tool",

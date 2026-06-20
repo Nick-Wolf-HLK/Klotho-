@@ -180,6 +180,11 @@ klotho run "Erstelle einen Bugreport" --context .                 # aktueller Or
 klotho run "Erstelle einen Bugreport" --context /pfad/zum/projekt
 ```
 
+Während die Subagenten suchen, zeigt ein **Live-Dashboard** in Echtzeit, was
+jeder gerade tut (welche Datei er liest/grept), wie viele Dateien er schon
+gelesen hat und wie lange es läuft — mit animiertem Klotho-Spinn-Motiv, damit
+klar ist: hier arbeitet etwas.
+
 Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
 gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
 ausführen. Ballast (`venv*`, `node_modules`, `dist`, `__pycache__`, …) ist für

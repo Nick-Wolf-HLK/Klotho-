@@ -16,7 +16,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from . import audit, codebase, compress, intro, ui
+from . import audit, codebase, compress, intro, live, ui
 from .config import (
     OrchestratorConfig,
     SubagentConfig,
@@ -177,14 +177,21 @@ def _run_pipeline(
         console.print(Panel(Markdown(refine_prompt), title="Verfeinerter Prompt", border_style="cyan"))
 
     if root:
-        ui.info("Subagenten durchsuchen den Projektordner agentisch (read-only)…")
-    ui.info(f"Schicke an {len(subagents)} Subagenten parallel…")
-    responses = asyncio.run(
-        run_subagents_parallel(
-            client, subagents, prompt, refine_prompt=refine_prompt, root=root,
-            max_iterations=cfg.agent_max_iterations,
+        responses = asyncio.run(
+            live.run_audit_with_dashboard(
+                console, client, subagents, prompt,
+                refine_prompt=refine_prompt, root=root,
+                max_iterations=cfg.agent_max_iterations,
+            )
         )
-    )
+    else:
+        ui.info(f"Schicke an {len(subagents)} Subagenten parallel…")
+        responses = asyncio.run(
+            run_subagents_parallel(
+                client, subagents, prompt, refine_prompt=refine_prompt, root=root,
+                max_iterations=cfg.agent_max_iterations,
+            )
+        )
     ui.show_subagent_responses(responses)
 
     comp_stats = compress.CompressionStats(level=cfg.compression)

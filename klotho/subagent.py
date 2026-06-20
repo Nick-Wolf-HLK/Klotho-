@@ -97,6 +97,7 @@ async def run_subagents_parallel(
     root: Optional[str] = None,
     max_iterations: int = 60,
     timeout: Optional[float] = None,
+    progress_factory=None,
 ) -> list[SubagentResponse]:
     ordered = sorted(subagents, key=lambda s: s.order)
     if root:
@@ -106,6 +107,7 @@ async def run_subagents_parallel(
             run_agentic_subagent(
                 client, sub, refine_prompt or prompt, root,
                 max_iterations=max_iterations, timeout=timeout,
+                progress=progress_factory(sub.name) if progress_factory else None,
             )
             for sub in ordered
         ]

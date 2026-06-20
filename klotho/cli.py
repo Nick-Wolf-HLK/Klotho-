@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from . import audit, codebase, compress, ui
+from . import audit, codebase, compress, live, ui
 from .config import (
     DEFAULT_CONFIG_PATH,
     OrchestratorConfig,
@@ -86,14 +86,21 @@ def _run_pipeline(
         ui.info(f"Refined prompt:\n{refine_prompt}\n")
 
     if root:
-        ui.info("Subagents explore the project folder agentically (read-only)…")
-    ui.info(f"Dispatching to {len(subagents)} subagents in parallel…")
-    responses = asyncio.run(
-        run_subagents_parallel(
-            client, subagents, prompt, refine_prompt=refine_prompt, root=root,
-            max_iterations=cfg.agent_max_iterations,
+        responses = asyncio.run(
+            live.run_audit_with_dashboard(
+                ui.console, client, subagents, prompt,
+                refine_prompt=refine_prompt, root=root,
+                max_iterations=cfg.agent_max_iterations,
+            )
         )
-    )
+    else:
+        ui.info(f"Dispatching to {len(subagents)} subagents in parallel…")
+        responses = asyncio.run(
+            run_subagents_parallel(
+                client, subagents, prompt, refine_prompt=refine_prompt, root=root,
+                max_iterations=cfg.agent_max_iterations,
+            )
+        )
     ui.show_subagent_responses(responses)
 
     comp_stats = compress.CompressionStats(level=cfg.compression)
