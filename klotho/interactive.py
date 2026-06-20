@@ -128,7 +128,7 @@ def _ask_mode() -> tuple[bool, bool]:
 def _ask_refine() -> bool:
     """Ask whether to refine the prompt first."""
     return questionary.confirm(
-        "Soll der Orchestrator deinen Prompt vorher verfeinern?",
+        "Soll Klotho deinen Prompt vorher verfeinern?",
         default=True,
     ).ask()
 
@@ -154,7 +154,7 @@ def _run_pipeline(
 
     refine_prompt: Optional[str] = None
     if refine:
-        ui.info(f"Orchestrator ({cfg.orchestrator_model}) verfeinert den Prompt…")
+        ui.info(f"Klotho verfeinert deinen Prompt ({cfg.orchestrator_model})…")
         refine_sys = (
             "Refine the user's code-audit request so it elicits CONCRETE, evidence-backed "
             "findings (bugs, logic errors, quality issues) with file:line — NOT a step-by-step "
