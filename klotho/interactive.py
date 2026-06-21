@@ -33,6 +33,45 @@ from .synthesizer import synthesize_plan
 console = Console()
 
 
+def _auto_select_models(available: list[str], base_url: str):
+    """Bietet an, die Modelle automatisch wählen zu lassen (ein Modell weist die
+    Rollen token-effizient zu). Liefert {orchestrator, judge, subagents} oder None
+    (→ manuelle Auswahl)."""
+    from . import model_select
+
+    if not questionary.confirm(
+        i18n.t("Modelle automatisch wählen lassen? (empfohlen, token-effizient)",
+               "Let Klotho pick the models automatically? (recommended, token-efficient)"),
+        default=True,
+    ).ask():
+        return None
+
+    selector = model_select.heuristic_select(available)["orchestrator"]
+    client = LLMClient(base_url=base_url)
+    with console.status(
+        i18n.t(f"[cyan]{selector} wählt passende Modelle …[/]",
+               f"[cyan]{selector} is picking models …[/]"), spinner="dots"):
+        try:
+            choice = asyncio.run(model_select.select_models(
+                client, selector, available, task="code audit / bug report"))
+        except Exception:
+            choice = model_select.heuristic_select(available)
+
+    body = (
+        f"[bold]Orchestrator:[/] {choice['orchestrator']}\n"
+        f"[bold]Judge:[/] {choice['judge']}\n"
+        f"[bold]{i18n.t('Subagenten', 'Subagents')}:[/] {', '.join(choice['subagents'])}\n"
+    )
+    if choice.get("reason"):
+        body += f"\n[dim]{choice['reason']}[/]"
+    console.print(Panel(body, title=i18n.t("[bold cyan]🤖 Automatische Modellauswahl[/]",
+                                           "[bold cyan]🤖 Automatic model selection[/]"),
+                        border_style="cyan"))
+    if questionary.confirm(i18n.t("Übernehmen?", "Use these?"), default=True).ask():
+        return choice
+    return None
+
+
 def _pick_orchestrator(available: list[str]) -> str:
     default = "glm-5.2:cloud" if "glm-5.2:cloud" in available else available[0]
     return questionary.select(
@@ -354,31 +393,38 @@ def start_interactive() -> None:
         console.print(Panel.fit(i18n.t("[bold]Neue Session[/]", "[bold]New session[/]"),
                                 border_style="blue"))
 
-        # 1. Orchestrator-Modell wählen (Dropdown)
-        orch_model = _pick_orchestrator(available)
-        if not orch_model:
-            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
-            return
-
-        # 2. Judge-Modell wählen (Dropdown)
-        judge_model = _pick_judge(available)
-        if not judge_model:
-            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
-            return
-
-        # 3. Subagenten wählen (Multi-Select Dropdown)
-        #    Eigene Retry-Schleife: leere Auswahl darf NICHT die ganze Session
-        #    verwerfen (Orchestrator/Judge bleiben erhalten).
-        while True:
-            picked = _pick_subagents(available)
-            if picked is None:  # Esc / Ctrl+C → Session abbrechen
+        # 0. Optional: Modelle automatisch wählen lassen (token-effizient)
+        auto = _auto_select_models(available, base_url)
+        if auto:
+            orch_model = auto["orchestrator"]
+            judge_model = auto["judge"]
+            picked = auto["subagents"]
+        else:
+            # 1. Orchestrator-Modell wählen (Dropdown)
+            orch_model = _pick_orchestrator(available)
+            if not orch_model:
                 console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
                 return
-            if picked:
-                break
-            console.print(i18n.t(
-                "[yellow]Mindestens einen Subagenten mit der [bold]Leertaste[/] markieren, dann Enter.[/]",
-                "[yellow]Mark at least one subagent with [bold]space[/], then Enter.[/]"))
+
+            # 2. Judge-Modell wählen (Dropdown)
+            judge_model = _pick_judge(available)
+            if not judge_model:
+                console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
+                return
+
+            # 3. Subagenten wählen (Multi-Select Dropdown)
+            #    Eigene Retry-Schleife: leere Auswahl darf NICHT die ganze Session
+            #    verwerfen (Orchestrator/Judge bleiben erhalten).
+            while True:
+                picked = _pick_subagents(available)
+                if picked is None:  # Esc / Ctrl+C → Session abbrechen
+                    console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
+                    return
+                if picked:
+                    break
+                console.print(i18n.t(
+                    "[yellow]Mindestens einen Subagenten mit der [bold]Leertaste[/] markieren, dann Enter.[/]",
+                    "[yellow]Mark at least one subagent with [bold]space[/], then Enter.[/]"))
 
         # 4. Thema/Prompt abfragen (eigene Nachfrage-Schleife in _ask_topic)
         topic = _ask_topic()

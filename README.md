@@ -76,12 +76,18 @@ klotho            # oder: orchestrator  (Alias, rückwärtskompatibel)
 ```
 
 Dann fragt es dich nacheinander:
+0. **Modelle automatisch wählen lassen?** (empfohlen) — ein Modell weist die
+   Rollen anhand des Ollama-Katalogs zu: **code-starke, token-effiziente**
+   Modelle für die Subagenten, ein neutrales/günstiges fürs Judging, ein fähiges
+   fürs Synthetisieren. **Reasoning-/„pro"-Modelle** (z. B. `deepseek-*-pro`)
+   werden für den Bulk-Audit bewusst gemieden. Du siehst den Vorschlag mit
+   Begründung und bestätigst — oder lehnst ab und wählst manuell:
 1. **Orchestrator-Modell** wählen (plant & synthetisiert)
 2. **Judge-Modell** wählen (bewertet neutral)
 3. **Subagenten** wählen (mehrere, Leertaste = an/abwählen)
 4. **Thema/Prompt** eingeben
 5. **Modus**: Plan-only oder Execute (mit/ohne Dry-Run)
-6. **Refine**: Soll der Orchestrator den Prompt verfeinern?
+6. **Refine**: Soll Klotho den Prompt verfeinern?
 7. Bestätigen → Pipeline läuft
 
 Nach jeder Session: "Noch eine Session?" → Loop.
