@@ -28,6 +28,20 @@ def _base(model: str) -> str:
     return model.lower()
 
 
+def is_cloud(model: str) -> bool:
+    """Ollama-Cloud-Modell (Suffix :cloud oder -cloud)."""
+    return "cloud" in _base(model)
+
+
+def _candidate_pool(available: list[str], prefer_cloud: bool) -> list[str]:
+    """Bei genügend Cloud-Modellen nur Cloud verwenden (lokale Modelle parallel
+    würden den lokalen Ollama-Daemon überlasten). Sonst alles."""
+    if not prefer_cloud:
+        return available
+    cloud = [m for m in available if is_cloud(m)]
+    return cloud if len(cloud) >= 3 else available
+
+
 def is_reasoning(model: str) -> bool:
     m = _base(model)
     # deepseek-coder ist KEIN Reasoning-Modell, deepseek-*-pro/r1 schon
@@ -48,11 +62,12 @@ def _efficiency_score(model: str) -> int:
     return score
 
 
-def heuristic_select(available: list[str]) -> dict:
+def heuristic_select(available: list[str], *, prefer_cloud: bool = True) -> dict:
     """Deterministische Auswahl ohne LLM (Fallback & Auswähler-Bestimmung)."""
     if not available:
         return {"orchestrator": "", "judge": "", "subagents": [], "reason": "keine Modelle"}
-    ranked = sorted(available, key=lambda m: (-_efficiency_score(m), m))
+    pool = _candidate_pool(available, prefer_cloud)
+    ranked = sorted(pool, key=lambda m: (-_efficiency_score(m), m))
     efficient = [m for m in ranked if not is_reasoning(m)] or ranked
 
     subagents = efficient[:4]
@@ -79,7 +94,9 @@ SELECTOR_SYSTEM = (
     "- judge: ONE neutral, cheap, reliable model (small is fine; not a heavy reasoning model).\n"
     "- orchestrator: ONE capable model to synthesize the final report.\n"
     "Prefer efficient code models (gpt-oss, gemma, qwen/qwen-coder, codestral, gemini-flash, "
-    "mistral). Every id MUST be copied EXACTLY from the available list.\n"
+    "mistral). STRONGLY prefer cloud models (id contains 'cloud') — they parallelise well; only "
+    "use local models if there aren't enough cloud ones. Every id MUST be copied EXACTLY from the "
+    "available list.\n"
     'Reply with ONE JSON object, nothing else: {"orchestrator":"<id>","judge":"<id>",'
     '"subagents":["<id>",...],"reason":"one short sentence why"}'
 )
@@ -105,12 +122,16 @@ async def select_models(
     selector_model: str,
     available: list[str],
     task: str = "code audit",
+    *,
+    prefer_cloud: bool = True,
 ) -> dict:
     """Lässt ``selector_model`` die Rollen zuweisen; fällt bei Fehler/Unbrauchbarem
-    auf die Heuristik zurück. Liefert {orchestrator, judge, subagents, reason}."""
-    if not available:
-        return heuristic_select(available)
-    listing = "\n".join(f"- {m}" for m in available)
+    auf die Heuristik zurück. Liefert {orchestrator, judge, subagents, reason}.
+    Bei genügend Cloud-Modellen werden nur Cloud-Modelle angeboten."""
+    pool = _candidate_pool(available, prefer_cloud) if available else available
+    if not pool:
+        return heuristic_select(available, prefer_cloud=prefer_cloud)
+    listing = "\n".join(f"- {m}" for m in pool)
     user = f"Task: {task} (favor token efficiency).\n\nAVAILABLE MODELS:\n{listing}"
     try:
         result = await client.chat(
@@ -121,9 +142,9 @@ async def select_models(
         )
         blob = _extract_json(result.text or "")
         choice = json.loads(blob) if blob else None
-        validated = _validate(choice, available) if isinstance(choice, dict) else None
+        validated = _validate(choice, pool) if isinstance(choice, dict) else None
         if validated:
             return validated
     except Exception:
         pass
-    return heuristic_select(available)
+    return heuristic_select(available, prefer_cloud=prefer_cloud)

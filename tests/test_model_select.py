@@ -32,13 +32,35 @@ def test_heuristic_avoids_reasoning_in_subagents():
 
 
 def test_heuristic_judge_prefers_gpt_oss_20b():
-    choice = ms.heuristic_select(AVAILABLE)
+    # ohne Cloud-Bevorzugung wird das schlanke gpt-oss:20b als Judge gewählt
+    choice = ms.heuristic_select(AVAILABLE, prefer_cloud=False)
     assert choice["judge"] == "gpt-oss:20b"
 
 
 def test_heuristic_empty():
     choice = ms.heuristic_select([])
     assert choice["subagents"] == []
+
+
+def test_prefer_cloud_excludes_local_when_enough_cloud():
+    # genug Cloud-Modelle → lokale (gemma4:12b, gpt-oss:20b, qwen3.5:27b) fliegen raus
+    choice = ms.heuristic_select(AVAILABLE)
+    chosen = [choice["orchestrator"], choice["judge"], *choice["subagents"]]
+    assert all(ms.is_cloud(m) for m in chosen), chosen
+
+
+def test_falls_back_to_local_when_too_few_cloud():
+    local_heavy = ["gemma4:12b", "gpt-oss:20b", "qwen3.5:27b", "glm-5.2:cloud"]
+    choice = ms.heuristic_select(local_heavy)   # nur 1 Cloud → lokal erlaubt
+    assert choice["subagents"]                  # nicht leer
+    assert any(not ms.is_cloud(m) for m in choice["subagents"])
+
+
+def test_is_cloud():
+    assert ms.is_cloud("gpt-oss:120b-cloud")
+    assert ms.is_cloud("minimax-m2.5:cloud")
+    assert not ms.is_cloud("gemma4:12b")
+    assert not ms.is_cloud("qwen3.5:27b")
 
 
 class _R:
@@ -56,13 +78,14 @@ def _run(client):
 
 
 def test_select_models_uses_valid_llm_choice():
+    # nur Cloud-Modelle (genug Cloud im Katalog → Pool ist cloud-only)
     payload = json.dumps({
-        "orchestrator": "glm-5.2:cloud", "judge": "gpt-oss:20b",
-        "subagents": ["gpt-oss:120b-cloud", "qwen3.5:27b"], "reason": "efficient",
+        "orchestrator": "glm-5.2:cloud", "judge": "deepseek-coder:cloud",
+        "subagents": ["gpt-oss:120b-cloud", "deepseek-coder:cloud"], "reason": "efficient",
     })
     choice = _run(_FakeClient(payload))
     assert choice["orchestrator"] == "glm-5.2:cloud"
-    assert choice["subagents"] == ["gpt-oss:120b-cloud", "qwen3.5:27b"]
+    assert choice["subagents"] == ["gpt-oss:120b-cloud", "deepseek-coder:cloud"]
     assert choice["reason"] == "efficient"
 
 
