@@ -158,13 +158,22 @@ gelesene Dateien werden automatisch neu verteilt, bis **jede Datei abgedeckt** i
 (selbstskalierend mit der Repo-Größe). Optional laufen mehrere volle Runden, bis
 **keine neuen Bugs** mehr auftauchen (loop-until-dry).
 
-**Effizienz & Rate-Limit:** Bewusst *ein* Agent pro Chunk (Checkliste) statt
-sechs Lens-Agenten — das ist ~6× weniger LLM-Last bei nahezu gleichem Recall. Der
-LLM-Client fängt **429/5xx mit Backoff + Retry** ab (respektiert `Retry-After`),
-die Parallelität ist gedrosselt (`concurrency`), und vor dem Lauf zeigt Klotho
-eine **Aufwand-Schätzung** („293 Dateien → ~30 Agenten") und fragt nach
-Bestätigung. Fällt der Judge aus (z. B. Rate-Limit), wird der Bug-Report trotzdem
-erstellt (Gleichgewichtung). So gehen weder Tokens noch Befunde verloren.
+**Effizienz & Rate-Limit:** Auf Nutzen pro Token getrimmt:
+- *Ein* Agent pro Chunk (Checkliste) statt sechs Lens-Agenten — ~6× weniger
+  LLM-Last bei nahezu gleichem Recall.
+- Jeder Agent **liest direkt seine zugewiesenen Dateien** — kein `find_files`/
+  `list_dir`, das sonst pro Agent das ganze Repo auflisten würde.
+- **Kein Judge im Coverage-Modus**: Chunks sehen verschiedene Dateien und sind
+  nicht vergleichbar — der (große) Judge-Call entfällt, Gleichgewichtung genügt;
+  die Qualität sichern Quote-Verifikation + adversariale Stufe.
+- **Managed Memory** hält nur die jüngsten Datei-Inhalte im Kontext; der Agent
+  arbeitet aus seinen Notizen.
+- **429/5xx mit Backoff + Retry** (respektiert `Retry-After`), Parallelität
+  gedrosselt (`concurrency`).
+- **Aufwand-Schätzung + Bestätigung** vor dem Lauf („293 Dateien → ~30 Agenten").
+- Fällt der Judge (Plan-Modus) aus, wird das Ergebnis trotzdem erstellt.
+
+So gehen weder Tokens noch Befunde verloren.
 
 Konfigurierbar unter `[coverage]` in `models.toml`: `chunk_size` (Dateien pro
 Agent), `concurrency` (gleichzeitige Agenten — gegen 429), `max_rounds`

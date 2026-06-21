@@ -209,21 +209,31 @@ def _run_pipeline(
                 max_iterations=cfg.agent_max_iterations,
             )
         )
-    ui.show_subagent_responses(responses)
-
-    ui.info(i18n.t(f"Bewerte mit {cfg.judge_model}…", f"Judging with {cfg.judge_model}…"))
-    try:
-        report = asyncio.run(
-            judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
-        )
-        ui.show_judge_report(report)
-    except Exception as exc:
-        ui.error(i18n.t(
-            f"Judge fehlgeschlagen ({str(exc)[:60]}) — nutze Gleichgewichtung, Report wird trotzdem erstellt.",
-            f"Judge failed ({str(exc)[:60]}) — using equal weights, report is still produced."))
-        report = equal_weight_report(responses)
-
     synth_model = cfg.orchestrator_model
+
+    if root:
+        # Coverage-Modus: KEIN Judge-Call. Die Chunks sehen verschiedene Dateien
+        # und sind nicht vergleichbar — Gewichtung wäre sinnlos und teuer (der
+        # Judge bekäme alle Chunk-Reports auf einmal). Gleichgewichtung genügt;
+        # Qualität sichern die Quote-Verifikation + adversariale Stufe.
+        n_ok = sum(1 for r in responses if not r.error)
+        ui.info(i18n.t(
+            f"{n_ok} Chunk-Audits abgeschlossen (Judge im Coverage-Modus übersprungen).",
+            f"{n_ok} chunk audits done (judge skipped in coverage mode)."))
+        report = equal_weight_report(responses)
+    else:
+        ui.show_subagent_responses(responses)
+        ui.info(i18n.t(f"Bewerte mit {cfg.judge_model}…", f"Judging with {cfg.judge_model}…"))
+        try:
+            report = asyncio.run(
+                judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
+            )
+            ui.show_judge_report(report)
+        except Exception as exc:
+            ui.error(i18n.t(
+                f"Judge fehlgeschlagen ({str(exc)[:60]}) — nutze Gleichgewichtung.",
+                f"Judge failed ({str(exc)[:60]}) — using equal weights."))
+            report = equal_weight_report(responses)
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
@@ -248,7 +258,6 @@ def _run_pipeline(
             md = asyncio.run(
                 audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
             )
-        ui.show_model_ranking(report)
         ui.show_bug_report(md)
         ui.success(i18n.t("Bug-Report fertig.", "Bug report done."))
         return

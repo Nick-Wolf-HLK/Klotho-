@@ -50,9 +50,9 @@ ADJUDICATOR_SYSTEM = (
     '"reason":"one or two sentences citing exactly what you read"}'
 )
 
-MAX_ITERATIONS = 8
-MAX_TOOL_RESULT_CHARS = 8000
-PREFILL_CHARS = 6000
+MAX_ITERATIONS = 4
+MAX_TOOL_RESULT_CHARS = 5000
+PREFILL_CHARS = 4000
 _VERDICTS = {"confirmed", "refuted", "uncertain"}
 _SEVERITIES = {"critical", "high", "medium", "low"}
 

@@ -72,3 +72,14 @@ def test_parse_findings_clamps_bad_enum_values():
     f = agent.parse_findings(raw)[0]
     assert f.severity == "low"           # unbekannt → konservativ
     assert f.category == "quality"
+
+
+def test_coverage_directive_suppresses_find_files_when_assigned():
+    out = agent._coverage_directive("audit", lens=None, assigned_files=["a.py", "b.py"])
+    assert "a.py" in out and "b.py" in out
+    assert "find_files" in out and "Do NOT call find_files" in out  # Verschwendung unterbinden
+
+
+def test_coverage_directive_plain_without_assignment():
+    out = agent._coverage_directive("audit", lens=None, assigned_files=None)
+    assert out == "audit"               # ohne Zuweisung unverändert

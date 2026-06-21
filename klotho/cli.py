@@ -104,19 +104,24 @@ def _run_pipeline(
                 max_iterations=cfg.agent_max_iterations,
             )
         )
-    ui.show_subagent_responses(responses)
-
-    ui.info(f"Judging with {cfg.judge_model}…")
-    try:
-        report = asyncio.run(
-            judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
-        )
-        ui.show_judge_report(report)
-    except Exception as exc:
-        ui.error(f"Judge failed ({str(exc)[:60]}) — using equal weights, report still produced.")
-        report = equal_weight_report(responses)
-
     synth_model = cfg.orchestrator_model
+
+    if root:
+        # Coverage-Modus: kein Judge (Chunks nicht vergleichbar, Input riesig).
+        n_ok = sum(1 for r in responses if not r.error)
+        ui.info(f"{n_ok} chunk audits done (judge skipped in coverage mode).")
+        report = equal_weight_report(responses)
+    else:
+        ui.show_subagent_responses(responses)
+        ui.info(f"Judging with {cfg.judge_model}…")
+        try:
+            report = asyncio.run(
+                judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
+            )
+            ui.show_judge_report(report)
+        except Exception as exc:
+            ui.error(f"Judge failed ({str(exc)[:60]}) — using equal weights.")
+            report = equal_weight_report(responses)
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
@@ -132,7 +137,6 @@ def _run_pipeline(
             md = asyncio.run(
                 audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
             )
-        ui.show_model_ranking(report)
         ui.show_bug_report(md)
         ui.success("Bug report done.")
         return
