@@ -22,12 +22,14 @@ from .config import SubagentConfig
 from .llm_client import LLMClient
 from .plan_schema import Finding, SubagentResponse
 
-# Default-Parameter (Kosten egal → auf Vollständigkeit getrimmt; in config überschreibbar).
-DEFAULT_CHUNK_SIZE = 15
-DEFAULT_MAX_CONCURRENCY = 6
-DEFAULT_MAX_ITERATIONS = 80
-DEFAULT_MAX_ROUNDS = 2
-DEFAULT_COVERAGE_RETRIES = 2
+# Default-Parameter — auf EFFIZIENZ getrimmt: EIN Agent pro Chunk (prüft alle
+# Kategorien via Checkliste), niedrige Parallelität (gegen Rate-Limit), eine
+# Runde. Alles in models.toml [coverage] überschreibbar.
+DEFAULT_CHUNK_SIZE = 10
+DEFAULT_MAX_CONCURRENCY = 3
+DEFAULT_MAX_ITERATIONS = 40
+DEFAULT_MAX_ROUNDS = 1
+DEFAULT_COVERAGE_RETRIES = 1
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,7 @@ LENSES: list[Lens] = [
 class Task:
     chunk_id: int
     files: list[str]
-    lens: Lens
+    lens: Lens | None        # None = Voll-Audit (alle Kategorien via Checkliste)
     model: str
     name: str
 
@@ -96,27 +98,48 @@ def build_tasks(
     *,
     round_no: int = 1,
 ) -> list[Task]:
-    """Erzeugt einen Task pro (Chunk × Lens); Modelle werden round-robin verteilt.
-    Pro Runde wird der Modell-Offset rotiert, damit über Runden andere Modelle auf
-    dieselbe Chunk/Lens-Kombination schauen (mehr Vielfalt für loop-until-dry)."""
+    """Erzeugt Tasks; Modelle werden round-robin (pro Runde rotiert) verteilt.
+
+    Standard (``lenses=None``): EIN Voll-Audit-Agent pro Chunk, der alle
+    Kategorien per Checkliste prüft — effizient. Wird eine Lens-Liste übergeben,
+    entsteht ein Task pro (Chunk × Lens) — gründlicher, aber teurer."""
     if not models:
         return []
-    lenses = lenses or LENSES
+    lens_cycle = lenses if lenses else [None]
     tasks: list[Task] = []
     i = 0
     for c_idx, chunk in enumerate(chunks):
-        for lens in lenses:
+        for lens in lens_cycle:
             model = models[(i + round_no - 1) % len(models)]
             short = model.split(":")[0]
+            tag = f"·{lens.key}" if lens else ""
             tasks.append(Task(
                 chunk_id=c_idx,
                 files=chunk,
                 lens=lens,
                 model=model,
-                name=f"c{c_idx}·{lens.key}·{short}",
+                name=f"c{c_idx}{tag}·{short}",
             ))
             i += 1
     return tasks
+
+
+def estimate_audit(
+    n_files: int,
+    *,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    max_rounds: int = DEFAULT_MAX_ROUNDS,
+    lenses: list[Lens] | None = None,
+) -> dict:
+    """Grobe Vorab-Schätzung des Aufwands (für eine Bestätigung VOR dem Lauf)."""
+    n_chunks = (n_files + chunk_size - 1) // max(1, chunk_size) if n_files else 0
+    per_round = n_chunks * (len(lenses) if lenses else 1)
+    return {
+        "files": n_files,
+        "chunks": n_chunks,
+        "agents_per_round": per_round,
+        "agents_total": per_round * max(1, max_rounds),
+    }
 
 
 def _norm_paths(paths) -> set[str]:
@@ -152,13 +175,17 @@ async def _run_task(
         resp = await run_agentic_subagent(
             client, sub, prompt, root,
             max_iterations=max_iterations, timeout=timeout, progress=_progress,
-            lens=task.lens.focus, assigned_files=task.files, read_sink=read_sink,
+            lens=task.lens.focus if task.lens else None,
+            assigned_files=task.files, read_sink=read_sink,
         )
     state.tasks_done += 1
     state.activity.pop(task.name, None)
     if resp.findings:
         state.findings += len(resp.findings)
-        state.lens_counts[task.lens.key] = state.lens_counts.get(task.lens.key, 0) + len(resp.findings)
+        # nach Befund-Kategorie zählen (funktioniert auch im Voll-Audit ohne Lens)
+        for f in resp.findings:
+            cat = f.category or "?"
+            state.lens_counts[cat] = state.lens_counts.get(cat, 0) + 1
     if on_update:
         on_update(state)
     return resp, read_sink
@@ -198,7 +225,7 @@ async def run_coverage_audit(
         state.round = rnd
         new_this_round = 0
 
-        # --- Volle Coverage dieser Runde: jeder Chunk × jede Lens ---
+        # --- Volle Coverage dieser Runde: ein Voll-Audit-Agent pro Chunk ---
         chunks = chunk_files(files, chunk_size)
         tasks = build_tasks(chunks, models, round_no=rnd)
         state.tasks_total = len(tasks)
@@ -229,8 +256,7 @@ async def run_coverage_audit(
             if not missing:
                 break
             mchunks = chunk_files(missing, chunk_size)
-            # Eine Lens (logic) genügt zum Schließen der Lücke; Vollabdeckung zählt.
-            mtasks = build_tasks(mchunks, models, lenses=[LENSES[-1]], round_no=rnd)
+            mtasks = build_tasks(mchunks, models, round_no=rnd)   # Voll-Audit der Lücke
             state.tasks_total += len(mtasks)
             if on_update:
                 on_update(state)

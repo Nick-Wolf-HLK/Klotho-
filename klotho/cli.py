@@ -15,7 +15,7 @@ from .config import (
     load_config,
 )
 from .executor import Executor
-from .judge import judge_responses
+from .judge import equal_weight_report, judge_responses
 from .llm_client import LLMClient
 from .subagent import run_subagents_parallel
 from .synthesizer import synthesize_plan
@@ -107,10 +107,14 @@ def _run_pipeline(
     ui.show_subagent_responses(responses)
 
     ui.info(f"Judging with {cfg.judge_model}…")
-    report = asyncio.run(
-        judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
-    )
-    ui.show_judge_report(report)
+    try:
+        report = asyncio.run(
+            judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
+        )
+        ui.show_judge_report(report)
+    except Exception as exc:
+        ui.error(f"Judge failed ({str(exc)[:60]}) — using equal weights, report still produced.")
+        report = equal_weight_report(responses)
 
     synth_model = cfg.orchestrator_model
 
@@ -120,6 +124,7 @@ def _run_pipeline(
             ui.info("Verifying & adversarially reviewing findings against the source…")
             md = asyncio.run(audit.build_verified_bug_report(
                 client, synth_model, responses, report, root,
+                adjudicate=cfg.coverage_adjudicate,
                 on_progress=lambda d, t: ui.info(f"  adversarial review… {d}/{t}"),
             ))
         else:

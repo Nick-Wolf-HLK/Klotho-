@@ -16,17 +16,20 @@ def test_chunk_files():
     assert coverage.chunk_files([1], 5) == [[1]]
 
 
-def test_build_tasks_chunk_x_lens_and_model_roundrobin():
+def test_build_tasks_single_agent_default():
     chunks = [["a.py"], ["b.py"]]
-    models = ["m1", "m2"]
-    tasks = coverage.build_tasks(chunks, models)
-    # 2 Chunks × 6 Lenses
+    tasks = coverage.build_tasks(chunks, ["m1", "m2"])
+    assert len(tasks) == 2                       # ein Voll-Audit-Agent pro Chunk
+    assert all(t.lens is None for t in tasks)
+    assert {t.model for t in tasks} == {"m1", "m2"}   # Modelle round-robin
+
+
+def test_build_tasks_multi_lens_when_requested():
+    chunks = [["a.py"], ["b.py"]]
+    tasks = coverage.build_tasks(chunks, ["m1"], lenses=coverage.LENSES)
     assert len(tasks) == 2 * len(coverage.LENSES)
-    # jede Lens kommt pro Chunk genau einmal vor
     lens_keys = {t.lens.key for t in tasks if t.chunk_id == 0}
     assert lens_keys == {l.key for l in coverage.LENSES}
-    # Modelle round-robin → beide Modelle genutzt
-    assert {t.model for t in tasks} == {"m1", "m2"}
 
 
 def test_build_tasks_empty_without_models():
@@ -80,8 +83,8 @@ def test_loop_until_dry_stops_after_one_round_when_no_findings(monkeypatch, tmp_
 
     subs = [SubagentConfig(name="m1", model="m1", order=1)]
     _run(subs, root=str(tmp_path), chunk_size=5, max_rounds=3)
-    # 1 Datei → 1 Chunk × 6 Lenses = 6 Tasks; keine Findings ⇒ nur EINE Runde
-    assert calls["n"] == len(coverage.LENSES)
+    # 1 Datei → 1 Chunk × 1 Voll-Audit-Agent; keine Findings ⇒ nur EINE Runde
+    assert calls["n"] == 1
 
 
 def test_retry_reassigns_unread_files(monkeypatch, tmp_path):

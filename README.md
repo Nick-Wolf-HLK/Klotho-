@@ -149,18 +149,28 @@ Run `klotho config` to set roles interactively (uses `questionary`).
 
 Gibst du einen **Projektordner** an, fährt Klotho einen **Coverage-Audit**: Das
 ganze Repo wird **garantiert** durchsucht — nicht stichprobenartig. Die komplette
-Quelldateiliste wird in **Chunks** aufgeteilt, und jeder Chunk wird aus **sechs
-Analyse-Lenses** geprüft (Sicherheit, Concurrency, Fehlerbehandlung, Ressourcen,
-Validierung, Logik). Jeder Agent bekommt eine **Pflicht-Dateiliste** + read-only
-Werkzeuge (`list_dir`, `read_file`, `grep`, `find_files`) und **muss jede
-zugewiesene Datei lesen**. Nicht gelesene Dateien werden automatisch in
-Nachrunden neu verteilt — es werden so viele Agenten erzeugt, bis **jede Datei
-abgedeckt** ist (selbstskalierend mit der Repo-Größe). Optional laufen mehrere
-volle Runden, bis **keine neuen Bugs** mehr auftauchen (loop-until-dry).
+Quelldateiliste wird in kleine **Chunks** aufgeteilt; pro Chunk läuft **ein
+Voll-Audit-Agent**, der **alle sechs Kategorien per Checkliste** prüft
+(Sicherheit, Concurrency, Fehlerbehandlung, Ressourcen, Validierung, Logik). Jeder
+Agent bekommt eine **Pflicht-Dateiliste** + read-only Werkzeuge (`list_dir`,
+`read_file`, `grep`, `find_files`) und **muss jede zugewiesene Datei lesen**. Nicht
+gelesene Dateien werden automatisch neu verteilt, bis **jede Datei abgedeckt** ist
+(selbstskalierend mit der Repo-Größe). Optional laufen mehrere volle Runden, bis
+**keine neuen Bugs** mehr auftauchen (loop-until-dry).
+
+**Effizienz & Rate-Limit:** Bewusst *ein* Agent pro Chunk (Checkliste) statt
+sechs Lens-Agenten — das ist ~6× weniger LLM-Last bei nahezu gleichem Recall. Der
+LLM-Client fängt **429/5xx mit Backoff + Retry** ab (respektiert `Retry-After`),
+die Parallelität ist gedrosselt (`concurrency`), und vor dem Lauf zeigt Klotho
+eine **Aufwand-Schätzung** („293 Dateien → ~30 Agenten") und fragt nach
+Bestätigung. Fällt der Judge aus (z. B. Rate-Limit), wird der Bug-Report trotzdem
+erstellt (Gleichgewichtung). So gehen weder Tokens noch Befunde verloren.
 
 Konfigurierbar unter `[coverage]` in `models.toml`: `chunk_size` (Dateien pro
-Agent), `concurrency` (gleichzeitige Agenten — gegen Überlastung/Timeouts) und
-`max_rounds` (loop-until-dry).
+Agent), `concurrency` (gleichzeitige Agenten — gegen 429), `max_rounds`
+(loop-until-dry) und `adjudicate` (adversariale Gegenprüfung; `false` spart
+Tokens). Wer maximalen Recall will und das Rate-Limit verträgt, dreht
+`chunk_size` runter, `max_rounds` und `concurrency` hoch.
 
 **Ergebnis ist ein Bug-Report, kein Plan.** Im Code-Modus geben die Subagenten
 ihre **Befunde strukturiert** zurück (JSON: `Datei`, `Zeile`, Schweregrad,

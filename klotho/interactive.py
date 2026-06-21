@@ -25,7 +25,7 @@ from .config import (
     load_opencode_base_url,
 )
 from .executor import Executor
-from .judge import judge_responses
+from .judge import equal_weight_report, judge_responses
 from .llm_client import LLMClient
 from .subagent import run_subagents_parallel
 from .synthesizer import synthesize_plan
@@ -174,6 +174,22 @@ def _run_pipeline(
                             border_style="cyan"))
 
     if root:
+        # Vorab-Schätzung + Bestätigung, damit niemand blind in einen teuren Lauf rennt.
+        from . import coverage as _cov
+        n_files = len(codebase.collect_source_files(root))
+        est = _cov.estimate_audit(
+            n_files, chunk_size=cfg.coverage_chunk_size, max_rounds=cfg.coverage_max_rounds)
+        ui.klotho_say(i18n.t(
+            f"Coverage-Audit: {est['files']} Dateien → ~{est['agents_total']} Agenten "
+            f"({est['chunks']} Chunks × {cfg.coverage_max_rounds} Runde(n), "
+            f"max. {cfg.coverage_concurrency} gleichzeitig).",
+            f"Coverage audit: {est['files']} files → ~{est['agents_total']} agents "
+            f"({est['chunks']} chunks × {cfg.coverage_max_rounds} round(s), "
+            f"up to {cfg.coverage_concurrency} concurrent)."))
+        if not questionary.confirm(
+            i18n.t("Lauf starten?", "Start the run?"), default=True).ask():
+            ui.info(i18n.t("Abgebrochen.", "Cancelled."))
+            return
         responses = asyncio.run(
             live.run_coverage_with_dashboard(
                 console, client, subagents, refine_prompt or prompt,
@@ -196,10 +212,16 @@ def _run_pipeline(
     ui.show_subagent_responses(responses)
 
     ui.info(i18n.t(f"Bewerte mit {cfg.judge_model}…", f"Judging with {cfg.judge_model}…"))
-    report = asyncio.run(
-        judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
-    )
-    ui.show_judge_report(report)
+    try:
+        report = asyncio.run(
+            judge_responses(client, cfg.judge_model, prompt, responses, cfg.rubric)
+        )
+        ui.show_judge_report(report)
+    except Exception as exc:
+        ui.error(i18n.t(
+            f"Judge fehlgeschlagen ({str(exc)[:60]}) — nutze Gleichgewichtung, Report wird trotzdem erstellt.",
+            f"Judge failed ({str(exc)[:60]}) — using equal weights, report is still produced."))
+        report = equal_weight_report(responses)
 
     synth_model = cfg.orchestrator_model
 
@@ -217,7 +239,8 @@ def _run_pipeline(
                         f"[cyan]Adversariale Gegenprüfung… {done}/{total} Befunde[/]",
                         f"[cyan]Adversarial review… {done}/{total} findings[/]"))
                 md = asyncio.run(audit.build_verified_bug_report(
-                    client, synth_model, responses, report, root, on_progress=_prog))
+                    client, synth_model, responses, report, root,
+                    adjudicate=cfg.coverage_adjudicate, on_progress=_prog))
         else:
             # Fallback: kein Auditor lieferte strukturierte Befunde → LLM-Synthese aus Prosa.
             ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",

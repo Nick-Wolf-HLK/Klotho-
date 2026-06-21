@@ -29,15 +29,15 @@ dry_run_default = false
 criteria = ["completeness", "feasibility", "originality", "depth"]
 
 [agent]
-# Schritte (Werkzeug-Runden) pro agentischem Subagenten, der den Projektordner
-# selbst durchsucht. Höher = gründlicher (mehr Dateien gelesen), aber langsamer
-# und mehr Tokens. Für riesige Repos hochsetzen (z. B. 150–300).
-max_iterations = 80
+# Schritte (Werkzeug-Runden) pro agentischem Subagenten. Bei kleinen Chunks
+# (siehe [coverage]) reichen wenige Runden; höher = gründlicher, aber teurer.
+max_iterations = 40
 
 [coverage]
-# Coverage-Audit: garantierte Abdeckung des GANZEN Repos × Analyse-Lenses,
-# selbstskalierend. Jede Datei wird mindestens einem Agenten zugewiesen, der sie
-# garantiert liest; nicht gelesene Dateien werden in Nachrunden neu verteilt.
-chunk_size = 15     # Dateien pro Agent (kleiner = mehr Agenten, gründlicher)
-concurrency = 6     # gleichzeitig laufende Agenten (gegen Überlastung/Timeouts)
-max_rounds = 2      # volle Runden für loop-until-dry (Abbruch, wenn nichts Neues)
+# Coverage-Audit: garantierte Abdeckung des GANZEN Repos, EIN Voll-Audit-Agent
+# pro Chunk (prüft alle Kategorien per Checkliste — effizient). Jede Datei wird
+# mindestens einem Agenten zugewiesen; nicht gelesene werden neu verteilt.
+chunk_size = 10     # Dateien pro Agent (kleiner = mehr Agenten, gründlicher, teurer)
+concurrency = 3     # gleichzeitig laufende Agenten (gegen Rate-Limit/429)
+max_rounds = 1      # volle Runden für loop-until-dry (hochsetzen = gründlicher, teurer)
+adjudicate = true   # adversariale Gegenprüfung der Befunde (false spart Tokens)

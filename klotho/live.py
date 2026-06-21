@@ -17,7 +17,6 @@ from rich.table import Table
 from rich.text import Text
 
 from . import i18n
-from .coverage import LENSES
 
 _SPIN = "⣾⣽⣻⢿⡿⣟⣯⣷"          # Braille-Spinner
 _THREAD_W = 58
@@ -73,13 +72,12 @@ def _render(state, start: float, frame: int) -> Panel:
         grid.add_row(i18n.t("Befunde", "findings"),
                      Text(str(state.findings), style="bold yellow"))
 
-    # Lens-Verteilung
+    # Verteilung nach Befund-Kategorie
     lens_line = Text()
     if state is not None and state.lens_counts:
-        for lens in LENSES:
-            n = state.lens_counts.get(lens.key, 0)
+        for cat, n in sorted(state.lens_counts.items(), key=lambda kv: -kv[1]):
             if n:
-                lens_line.append(f"{i18n.t(lens.de, lens.en)} ", style="magenta")
+                lens_line.append(f"{cat} ", style="magenta")
                 lens_line.append(f"{n}  ", style="bold")
 
     # Aktuell laufende Tasks (ein paar zeigen)

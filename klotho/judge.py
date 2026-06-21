@@ -81,6 +81,23 @@ async def judge_responses(
     return _coerce_report(data, responses)
 
 
+def equal_weight_report(responses: list[SubagentResponse]) -> JudgeReport:
+    """Fallback, wenn der Judge ausfällt (z. B. Rate-Limit): alle erfolgreichen
+    Auditoren gleich gewichten, damit der Bug-Report trotzdem entsteht."""
+    ok = [r for r in responses if not r.error]
+    pool = ok or responses
+    w = (1.0 / len(pool)) if pool else 0.0
+    verdicts = [
+        AgentVerdict(agent=r.agent, model=r.model, total_score=5.0, weight=w, criteria=[])
+        for r in pool
+    ]
+    return JudgeReport(
+        verdicts=verdicts,
+        best_agent=verdicts[0].agent if verdicts else "",
+        summary="",
+    )
+
+
 def _coerce_report(
     data: dict, responses: list[SubagentResponse]
 ) -> JudgeReport:

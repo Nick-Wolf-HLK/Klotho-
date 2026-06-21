@@ -1,12 +1,20 @@
 """Async OpenAI-compatible LLM client (works against ollama proxy or shim)."""
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
+
+# Rate-Limit-/Server-Fehler abfedern statt sofort sterben (Ollama Cloud 429).
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAX_RETRIES = 4
+BACKOFF_BASE = 2.0       # Sekunden; verdoppelt sich je Versuch
+BACKOFF_CAP = 30.0       # Obergrenze pro Wartezeit
 
 
 @dataclass
@@ -30,6 +38,43 @@ class LLMClient:
         self.timeout = timeout
         self.api_key = api_key
 
+    def _headers(self) -> dict:
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+    async def _post_json(self, payload: dict) -> dict:
+        """POST mit Retry/Backoff bei 429 & 5xx (respektiert Retry-After).
+        Wirft erst nach Ausschöpfen der Versuche."""
+        url = f"{self.base_url}/chat/completions"
+        last_exc: Optional[Exception] = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    resp = await client.post(url, json=payload, headers=self._headers())
+                if resp.status_code in RETRY_STATUSES and attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(_retry_delay(resp, attempt))
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status = exc.response.status_code if exc.response is not None else None
+                if status in RETRY_STATUSES and attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(_retry_delay(exc.response, attempt))
+                    continue
+                raise
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+                last_exc = exc
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(_retry_delay(None, attempt))
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("unreachable")
+
     async def chat(
         self,
         model: str,
@@ -50,17 +95,9 @@ class LLMClient:
         if response_format is not None:
             payload["response_format"] = response_format
 
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            elapsed = int((time.perf_counter() - start) * 1000)
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_json(payload)
+        elapsed = int((time.perf_counter() - start) * 1000)
         text = data["choices"][0]["message"]["content"]
         return LLMResult(text=text, elapsed_ms=elapsed, raw=data)
 
@@ -81,15 +118,7 @@ class LLMClient:
             "temperature": temperature,
             "stream": False,
         }
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_json(payload)
         return data["choices"][0]["message"]
 
     async def chat_json(
@@ -114,6 +143,20 @@ class LLMClient:
                 model, messages, temperature=temperature, max_tokens=max_tokens
             )
         return _parse_json(result.text)
+
+
+def _retry_delay(resp, attempt: int) -> float:
+    """Wartezeit vor dem nächsten Versuch: Retry-After-Header falls vorhanden,
+    sonst exponentielles Backoff mit Jitter, gekappt."""
+    if resp is not None:
+        ra = resp.headers.get("Retry-After")
+        if ra:
+            try:
+                return min(float(ra), BACKOFF_CAP)
+            except ValueError:
+                pass
+    delay = min(BACKOFF_BASE * (2 ** attempt), BACKOFF_CAP)
+    return delay + random.uniform(0, delay * 0.25)   # Jitter gegen Thundering Herd
 
 
 def _parse_json(text: str) -> dict:
