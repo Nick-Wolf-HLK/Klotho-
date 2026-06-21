@@ -5,13 +5,18 @@ from klotho import adjudicate
 from klotho.plan_schema import Finding
 
 
+class _Result:
+    def __init__(self, text):
+        self.text = text
+
+
 class _FakeClient:
-    """Gibt sofort ein finales Urteil zurück (keine Tool-Runden)."""
+    """Gibt sofort ein finales Urteil zurück (ein Einspeisungs-Call)."""
     def __init__(self, content: str):
         self._content = content
 
-    async def chat_with_tools(self, model, messages, tools):
-        return {"role": "assistant", "content": self._content, "tool_calls": []}
+    async def chat(self, model, messages, *, temperature=0.1):
+        return _Result(self._content)
 
 
 def _finding(**kw):

@@ -19,40 +19,27 @@ import json
 from typing import Callable, Optional
 
 from . import i18n
-from .agent import _clean_assistant, _extract_json
+from .agent import _extract_json
 from .llm_client import LLMClient
 from .plan_schema import Finding
-from .tools import TOOL_SCHEMAS, CodeTools
+from .tools import CodeTools
 
 ADJUDICATOR_SYSTEM = (
-    "You are a SKEPTICAL senior code reviewer double-checking ONE bug finding produced by an "
-    "automated auditor. Automated auditors produce many FALSE POSITIVES: they claim something is "
-    "'missing' that actually exists in another module, misread the direction of a check, miss a "
-    "mitigation that runs elsewhere (e.g. a default secret replaced at startup), or state things "
-    "that are simply factually wrong. Assume the claim is GUILTY-until-proven and verify it against "
-    "the REAL code.\n\n"
-    "You have read-only tools: list_dir, read_file, grep, find_files. USE them. Crucially, TRACE "
-    "ACROSS FILES when the claim depends on it: if a default value is flagged, grep for where that "
-    "symbol is set/used; if a field is 'missing', search the config/model modules; if a check looks "
-    "wrong, read it slowly and reason about it concretely.\n\n"
-    "Then decide:\n"
-    "- refuted: the claim is wrong — the field exists, the check is correct, a mitigation handles it, "
-    "or the statement is factually false. (This finding will be DROPPED.)\n"
-    "- confirmed: you verified by reading the code that the bug is real.\n"
-    "- uncertain: plausible but you cannot confirm it from the code.\n\n"
-    "RE-RATE severity conservatively (downgrade anything mitigated elsewhere). critical = exploitable "
-    "security hole or guaranteed crash/data-loss on normal input, with a concrete trigger you can "
-    "name; high = clearly breaks a real feature / serious weakness; medium = edge-condition bug or "
-    "real risk; low = minor quality. Only confirm critical/high if you can point to the exact "
-    "mechanism in code you read.\n\n"
-    "Your FINAL message must be a SINGLE JSON object and nothing else (no prose, no fences):\n"
+    "You are a SKEPTICAL senior code reviewer double-checking ONE bug finding from an automated "
+    "auditor. Such auditors produce many FALSE POSITIVES: they claim something is 'missing' that "
+    "exists, misread the direction of a check, miss a mitigation, or state things that are simply "
+    "false. Assume the claim is GUILTY-until-proven and verify it against the file shown below.\n"
+    "Decide: refuted = the claim is wrong (field exists, check is correct, mitigation handles it, "
+    "or factually false) → DROP it; confirmed = the bug is real per the code; uncertain = plausible "
+    "but not confirmable from what you see.\n"
+    "Re-rate severity conservatively (downgrade anything mitigated). Only confirmed critical/high if "
+    "you can point to the concrete mechanism in the shown code.\n"
+    "Reply with a SINGLE JSON object, nothing else (no prose/fences):\n"
     '{"verdict":"confirmed|refuted|uncertain","severity":"critical|high|medium|low",'
-    '"reason":"one or two sentences citing exactly what you read"}'
+    '"reason":"one short sentence"}'
 )
 
-MAX_ITERATIONS = 4
-MAX_TOOL_RESULT_CHARS = 5000
-PREFILL_CHARS = 4000
+PREFILL_CHARS = 6000
 _VERDICTS = {"confirmed", "refuted", "uncertain"}
 _SEVERITIES = {"critical", "high", "medium", "low"}
 
@@ -67,8 +54,7 @@ def _finding_prompt(tools: CodeTools, f: Finding) -> str:
         f"- issue     : {f.issue}\n"
         f"- code_quote:\n{f.code_quote}\n"
         f"- proposed fix: {f.fix}\n\n"
-        f"Current content of {f.file} (line-numbered; read other files as needed to trace the claim):\n"
-        f"{prefill}"
+        f"Source of {f.file} (line-numbered):\n{prefill}"
     )
 
 
@@ -93,31 +79,17 @@ async def _adjudicate_one(
     *,
     timeout: Optional[float],
 ) -> tuple[Finding, bool]:
-    """Liefert (Befund_aktualisiert, behalten?). Bei Fehler/kein-Urteil: behalten."""
+    """EIN Einspeisungs-Call (kein Tool-Loop): die betroffene Datei ist im Prompt.
+    Liefert (Befund_aktualisiert, behalten?). Bei Fehler/kein-Urteil: behalten."""
     tools = CodeTools(root)
     messages = [
         {"role": "system", "content": ADJUDICATOR_SYSTEM + " " + i18n.output_directive()},
         {"role": "user", "content": _finding_prompt(tools, f)},
     ]
     try:
-        for _ in range(MAX_ITERATIONS):
-            coro = client.chat_with_tools(model, messages, TOOL_SCHEMAS)
-            msg = await (asyncio.wait_for(coro, timeout) if timeout else coro)
-            messages.append(_clean_assistant(msg))
-            tool_calls = msg.get("tool_calls") or []
-            if not tool_calls:
-                verdict = _parse_verdict(msg.get("content") or "")
-                break
-            for tc in tool_calls:
-                fn = tc.get("function", {})
-                try:
-                    args = json.loads(fn.get("arguments") or "{}")
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-                result = tools.dispatch(fn.get("name", ""), args)[:MAX_TOOL_RESULT_CHARS]
-                messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result})
-        else:
-            verdict = None  # Iterationslimit ohne finales Urteil
+        coro = client.chat(model, messages, temperature=0.1)
+        result = await (asyncio.wait_for(coro, timeout) if timeout else coro)
+        verdict = _parse_verdict(result.text or "")
     except Exception:
         return f, True  # Im Zweifel behalten — keine echten Funde verlieren.
 

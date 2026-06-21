@@ -107,8 +107,8 @@ async def run_coverage_with_dashboard(
     *,
     root: str,
     chunk_size: int,
+    chunk_chars: int,
     max_concurrency: int,
-    max_iterations: int,
     max_rounds: int,
 ):
     """Führt den Coverage-Audit aus und zeigt dabei das Live-Dashboard."""
@@ -133,8 +133,8 @@ async def run_coverage_with_dashboard(
         try:
             responses = await coverage.run_coverage_audit(
                 client, subagents, prompt, root,
-                chunk_size=chunk_size, max_concurrency=max_concurrency,
-                max_iterations=max_iterations, max_rounds=max_rounds,
+                chunk_size=chunk_size, chunk_chars=chunk_chars,
+                max_concurrency=max_concurrency, max_rounds=max_rounds,
                 on_update=on_update,
             )
         finally:

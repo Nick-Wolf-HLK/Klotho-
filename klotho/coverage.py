@@ -1,14 +1,13 @@
-"""Coverage-Audit: durchsucht GARANTIERT das ganze Repo, aus mehreren Blickwinkeln.
+"""Coverage-Audit: durchsucht GARANTIERT das ganze Repo — token-effizient.
 
-Statt die Subagenten frei navigieren zu lassen (und Dateien zu übersehen), wird
-die komplette Quelldateiliste in Chunks aufgeteilt und jeder Chunk × jede
-Analyse-Lens einem Agenten zugewiesen, der seine Dateien GARANTIERT liest. Nicht
-gelesene Dateien werden in Nachrunden neu zugewiesen, bis das ganze Repo
-abgedeckt ist ("spawnt, bis alles durchsucht ist"). Optional laufen mehrere volle
-Runden, bis keine neuen Befunde mehr auftauchen (loop-until-dry).
+Die komplette Quelldateiliste wird in Chunks aufgeteilt (nach Datei-Anzahl UND
+Zeichen-Budget). Pro Chunk wird der Code DIREKT EINGESPEIST und mit GENAU EINEM
+LLM-Call analysiert — kein agentischer Tool-Loop (der pro Chunk Dutzende Calls
+mit wachsendem Kontext bräuchte). Coverage ist dadurch trivial garantiert: jede
+Datei steckt in genau einem Chunk und wird eingespeist.
 
 Das Ergebnis ist eine Liste von SubagentResponse — kompatibel mit der bestehenden
-Pipeline (Judge → Quote-Verifikation → adversariale Gegenprüfung → Bug-Report).
+Pipeline (Quote-Verifikation → adversariale Gegenprüfung → Bug-Report).
 """
 from __future__ import annotations
 
@@ -17,17 +16,16 @@ import os
 from dataclasses import dataclass, field
 
 from . import codebase
-from .agent import run_agentic_subagent
+from .agent import audit_files
 from .config import SubagentConfig
 from .llm_client import LLMClient
 from .plan_schema import Finding, SubagentResponse
 
-# Default-Parameter — auf EFFIZIENZ getrimmt: EIN Agent pro Chunk (prüft alle
-# Kategorien via Checkliste), niedrige Parallelität (gegen Rate-Limit), eine
-# Runde. Alles in models.toml [coverage] überschreibbar.
-DEFAULT_CHUNK_SIZE = 10
+# Default-Parameter — auf EFFIZIENZ getrimmt: ein Einspeisungs-Call pro Chunk,
+# niedrige Parallelität (gegen Rate-Limit), eine Runde. In models.toml [coverage].
+DEFAULT_CHUNK_SIZE = 6           # Dateien pro Chunk (Obergrenze)
+DEFAULT_CHUNK_CHARS = 24_000     # Zeichen-Budget pro Chunk (eingespeister Code)
 DEFAULT_MAX_CONCURRENCY = 3
-DEFAULT_MAX_ITERATIONS = 40
 DEFAULT_MAX_ROUNDS = 1
 DEFAULT_COVERAGE_RETRIES = 1
 
@@ -91,6 +89,35 @@ def chunk_files(files: list[str], size: int) -> list[list[str]]:
     return [files[i:i + size] for i in range(0, len(files), size)]
 
 
+def chunk_by_budget(
+    files: list[str],
+    root: str,
+    *,
+    max_files: int = DEFAULT_CHUNK_SIZE,
+    max_chars: int = DEFAULT_CHUNK_CHARS,
+) -> list[list[str]]:
+    """Gruppiert Dateien in Chunks, begrenzt durch Datei-ANZAHL UND Zeichen-Budget.
+    So bleibt der eingespeiste Code pro Chunk klein genug für EINEN Call; sehr
+    große Dateien landen allein in ihrem Chunk."""
+    root_p = root
+    chunks: list[list[str]] = []
+    cur: list[str] = []
+    cur_chars = 0
+    for f in files:
+        try:
+            size = os.path.getsize(os.path.join(root_p, f))
+        except OSError:
+            size = 0
+        if cur and (len(cur) >= max_files or cur_chars + size > max_chars):
+            chunks.append(cur)
+            cur, cur_chars = [], 0
+        cur.append(f)
+        cur_chars += size
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def build_tasks(
     chunks: list[list[str]],
     models: list[str],
@@ -125,25 +152,22 @@ def build_tasks(
 
 
 def estimate_audit(
-    n_files: int,
+    files: list[str],
+    root: str,
     *,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    max_files: int = DEFAULT_CHUNK_SIZE,
+    max_chars: int = DEFAULT_CHUNK_CHARS,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
-    lenses: list[Lens] | None = None,
 ) -> dict:
-    """Grobe Vorab-Schätzung des Aufwands (für eine Bestätigung VOR dem Lauf)."""
-    n_chunks = (n_files + chunk_size - 1) // max(1, chunk_size) if n_files else 0
-    per_round = n_chunks * (len(lenses) if lenses else 1)
+    """Vorab-Schätzung des Aufwands (für eine Bestätigung VOR dem Lauf). Im
+    Einspeisungs-Modus = 1 LLM-Call pro Chunk pro Runde."""
+    n_chunks = len(chunk_by_budget(files, root, max_files=max_files, max_chars=max_chars)) if files else 0
     return {
-        "files": n_files,
+        "files": len(files),
         "chunks": n_chunks,
-        "agents_per_round": per_round,
-        "agents_total": per_round * max(1, max_rounds),
+        "calls_per_round": n_chunks,
+        "calls_total": n_chunks * max(1, max_rounds),
     }
-
-
-def _norm_paths(paths) -> set[str]:
-    return {os.path.normpath(p) for p in paths if p}
 
 
 def _finding_key(f: Finding) -> tuple[str, str]:
@@ -157,38 +181,28 @@ async def _run_task(
     prompt: str,
     root: str,
     *,
-    max_iterations: int,
     timeout,
     sem: asyncio.Semaphore,
     state: CoverageState,
     on_update,
-) -> tuple[SubagentResponse, set[str]]:
-    read_sink: set[str] = set()
+) -> SubagentResponse:
     sub = SubagentConfig(name=task.name, model=task.model, order=task.chunk_id)
-
-    def _progress(activity: str, files: int, calls: int) -> None:
-        state.activity[task.name] = activity
-        if on_update:
-            on_update(state)
-
+    state.activity[task.name] = f"{len(task.files)} Dateien"
+    if on_update:
+        on_update(state)
     async with sem:
-        resp = await run_agentic_subagent(
-            client, sub, prompt, root,
-            max_iterations=max_iterations, timeout=timeout, progress=_progress,
-            lens=task.lens.focus if task.lens else None,
-            assigned_files=task.files, read_sink=read_sink,
-        )
+        resp = await audit_files(client, sub, prompt, root, task.files, timeout=timeout)
     state.tasks_done += 1
+    state.files_covered += len(task.files)        # Einspeisung deckt jede Chunk-Datei ab
     state.activity.pop(task.name, None)
     if resp.findings:
         state.findings += len(resp.findings)
-        # nach Befund-Kategorie zählen (funktioniert auch im Voll-Audit ohne Lens)
         for f in resp.findings:
             cat = f.category or "?"
             state.lens_counts[cat] = state.lens_counts.get(cat, 0) + 1
     if on_update:
         on_update(state)
-    return resp, read_sink
+    return resp
 
 
 async def run_coverage_audit(
@@ -198,15 +212,15 @@ async def run_coverage_audit(
     root: str,
     *,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_chars: int = DEFAULT_CHUNK_CHARS,
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
-    max_iterations: int = DEFAULT_MAX_ITERATIONS,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
-    coverage_retries: int = DEFAULT_COVERAGE_RETRIES,
     timeout=None,
     on_update=None,
 ) -> list[SubagentResponse]:
-    """Selbstskalierender Coverage-Audit. Liefert alle SubagentResponses aller
-    Runden (mit strukturierten Findings) für die nachgelagerte Pipeline."""
+    """Coverage-Audit per direkter Code-Einspeisung: ein LLM-Call pro Chunk.
+    Coverage ist garantiert (jede Datei ist in genau einem Chunk und wird
+    eingespeist). Liefert alle SubagentResponses für die nachgelagerte Pipeline."""
     files = codebase.collect_source_files(root)
     models = [s.model for s in sorted(subagents, key=lambda s: s.order)] or ["gpt-oss:20b"]
     state = CoverageState(files_total=len(files), max_rounds=max_rounds)
@@ -218,66 +232,34 @@ async def run_coverage_audit(
     sem = asyncio.Semaphore(max_concurrency)
     all_responses: list[SubagentResponse] = []
     seen_keys: set[tuple[str, str]] = set()
-    covered: set[str] = set()
-    target = _norm_paths(files)
+    chunks = chunk_by_budget(files, root, max_files=chunk_size, max_chars=chunk_chars)
 
     for rnd in range(1, max_rounds + 1):
         state.round = rnd
         new_this_round = 0
-
-        # --- Volle Coverage dieser Runde: ein Voll-Audit-Agent pro Chunk ---
-        chunks = chunk_files(files, chunk_size)
         tasks = build_tasks(chunks, models, round_no=rnd)
         state.tasks_total = len(tasks)
         state.tasks_done = 0
+        state.files_covered = 0
         if on_update:
             on_update(state)
 
         results = await asyncio.gather(*(
-            _run_task(client, t, prompt, root, max_iterations=max_iterations,
-                      timeout=timeout, sem=sem, state=state, on_update=on_update)
+            _run_task(client, t, prompt, root, timeout=timeout,
+                      sem=sem, state=state, on_update=on_update)
             for t in tasks
         ))
-        for resp, sink in results:
+        for resp in results:
             all_responses.append(resp)
-            covered |= _norm_paths(sink)
             for f in resp.findings:
                 k = _finding_key(f)
                 if k not in seen_keys:
                     seen_keys.add(k)
                     new_this_round += 1
-        state.files_covered = len(covered & target)
         if on_update:
             on_update(state)
 
-        # --- Nachrunden: nicht gelesene Dateien gezielt neu zuweisen ---
-        for _ in range(coverage_retries):
-            missing = sorted(f for f in files if os.path.normpath(f) not in covered)
-            if not missing:
-                break
-            mchunks = chunk_files(missing, chunk_size)
-            mtasks = build_tasks(mchunks, models, round_no=rnd)   # Voll-Audit der Lücke
-            state.tasks_total += len(mtasks)
-            if on_update:
-                on_update(state)
-            mres = await asyncio.gather(*(
-                _run_task(client, t, prompt, root, max_iterations=max_iterations,
-                          timeout=timeout, sem=sem, state=state, on_update=on_update)
-                for t in mtasks
-            ))
-            for resp, sink in mres:
-                all_responses.append(resp)
-                covered |= _norm_paths(sink)
-                for f in resp.findings:
-                    k = _finding_key(f)
-                    if k not in seen_keys:
-                        seen_keys.add(k)
-                        new_this_round += 1
-            state.files_covered = len(covered & target)
-            if on_update:
-                on_update(state)
-
-        # --- Loop-until-dry: keine NEUEN Befunde mehr → fertig ---
+        # Loop-until-dry: keine NEUEN Befunde mehr → fertig
         if new_this_round == 0:
             break
 

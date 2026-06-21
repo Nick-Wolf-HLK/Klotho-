@@ -176,16 +176,17 @@ def _run_pipeline(
     if root:
         # Vorab-Schätzung + Bestätigung, damit niemand blind in einen teuren Lauf rennt.
         from . import coverage as _cov
-        n_files = len(codebase.collect_source_files(root))
+        all_files = codebase.collect_source_files(root)
         est = _cov.estimate_audit(
-            n_files, chunk_size=cfg.coverage_chunk_size, max_rounds=cfg.coverage_max_rounds)
+            all_files, root, max_files=cfg.coverage_chunk_size,
+            max_chars=cfg.coverage_chunk_chars, max_rounds=cfg.coverage_max_rounds)
         ui.klotho_say(i18n.t(
-            f"Coverage-Audit: {est['files']} Dateien → ~{est['agents_total']} Agenten "
+            f"Coverage-Audit: {est['files']} Dateien → {est['calls_total']} LLM-Calls "
             f"({est['chunks']} Chunks × {cfg.coverage_max_rounds} Runde(n), "
-            f"max. {cfg.coverage_concurrency} gleichzeitig).",
-            f"Coverage audit: {est['files']} files → ~{est['agents_total']} agents "
+            f"max. {cfg.coverage_concurrency} gleichzeitig, 1 Call/Chunk).",
+            f"Coverage audit: {est['files']} files → {est['calls_total']} LLM calls "
             f"({est['chunks']} chunks × {cfg.coverage_max_rounds} round(s), "
-            f"up to {cfg.coverage_concurrency} concurrent)."))
+            f"up to {cfg.coverage_concurrency} concurrent, 1 call/chunk)."))
         if not questionary.confirm(
             i18n.t("Lauf starten?", "Start the run?"), default=True).ask():
             ui.info(i18n.t("Abgebrochen.", "Cancelled."))
@@ -195,8 +196,8 @@ def _run_pipeline(
                 console, client, subagents, refine_prompt or prompt,
                 root=root,
                 chunk_size=cfg.coverage_chunk_size,
+                chunk_chars=cfg.coverage_chunk_chars,
                 max_concurrency=cfg.coverage_concurrency,
-                max_iterations=cfg.agent_max_iterations,
                 max_rounds=cfg.coverage_max_rounds,
             )
         )

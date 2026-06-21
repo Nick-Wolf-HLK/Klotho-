@@ -29,15 +29,16 @@ dry_run_default = false
 criteria = ["completeness", "feasibility", "originality", "depth"]
 
 [agent]
-# Schritte (Werkzeug-Runden) pro agentischem Subagenten. Bei kleinen Chunks
-# (siehe [coverage]) reichen wenige Runden; höher = gründlicher, aber teurer.
+# Nur für den (optionalen) agentischen Modus relevant. Der Coverage-Audit nutzt
+# stattdessen direkte Code-Einspeisung (siehe [coverage]) und ignoriert dies.
 max_iterations = 40
 
 [coverage]
-# Coverage-Audit: garantierte Abdeckung des GANZEN Repos, EIN Voll-Audit-Agent
-# pro Chunk (prüft alle Kategorien per Checkliste — effizient). Jede Datei wird
-# mindestens einem Agenten zugewiesen; nicht gelesene werden neu verteilt.
-chunk_size = 10     # Dateien pro Agent (kleiner = mehr Agenten, gründlicher, teurer)
-concurrency = 3     # gleichzeitig laufende Agenten (gegen Rate-Limit/429)
-max_rounds = 1      # volle Runden für loop-until-dry (hochsetzen = gründlicher, teurer)
-adjudicate = true   # adversariale Gegenprüfung der Befunde (false spart Tokens)
+# Coverage-Audit: garantierte Abdeckung des GANZEN Repos per DIREKTER
+# Code-Einspeisung — EIN LLM-Call pro Chunk (kein agentischer Tool-Loop, der
+# pro Chunk Dutzende Calls mit wachsendem Kontext bräuchte = token-effizient).
+chunk_size = 6       # Dateien pro Chunk (Obergrenze)
+chunk_chars = 24000  # Zeichen-Budget des eingespeisten Codes pro Chunk
+concurrency = 3      # gleichzeitig laufende Calls (gegen Rate-Limit/429)
+max_rounds = 1       # volle Runden für loop-until-dry
+adjudicate = true    # adversariale Gegenprüfung je Befund (1 Call/Befund; false spart Tokens)

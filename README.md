@@ -145,41 +145,41 @@ criteria = ["completeness", "feasibility", "originality", "depth"]
 
 Run `klotho config` to set roles interactively (uses `questionary`).
 
-## Agentische Code-Analyse → Bug-Report
+## Code-Analyse → Bug-Report
 
 Gibst du einen **Projektordner** an, fährt Klotho einen **Coverage-Audit**: Das
 ganze Repo wird **garantiert** durchsucht — nicht stichprobenartig. Die komplette
-Quelldateiliste wird in kleine **Chunks** aufgeteilt; pro Chunk läuft **ein
-Voll-Audit-Agent**, der **alle sechs Kategorien per Checkliste** prüft
-(Sicherheit, Concurrency, Fehlerbehandlung, Ressourcen, Validierung, Logik). Jeder
-Agent bekommt eine **Pflicht-Dateiliste** + read-only Werkzeuge (`list_dir`,
-`read_file`, `grep`, `find_files`) und **muss jede zugewiesene Datei lesen**. Nicht
-gelesene Dateien werden automatisch neu verteilt, bis **jede Datei abgedeckt** ist
-(selbstskalierend mit der Repo-Größe). Optional laufen mehrere volle Runden, bis
-**keine neuen Bugs** mehr auftauchen (loop-until-dry).
+Quelldateiliste wird in kleine **Chunks** aufgeteilt (nach Datei-Anzahl *und*
+Zeichen-Budget); pro Chunk wird der Code **direkt eingespeist** und mit **genau
+einem LLM-Call** auf alle sechs Kategorien geprüft (Sicherheit, Concurrency,
+Fehlerbehandlung, Ressourcen, Validierung, Logik). Coverage ist dadurch trivial
+garantiert: jede Datei steckt in genau einem Chunk. Optional laufen mehrere volle
+Runden, bis **keine neuen Bugs** mehr auftauchen (loop-until-dry).
 
-**Effizienz & Rate-Limit:** Auf Nutzen pro Token getrimmt:
-- *Ein* Agent pro Chunk (Checkliste) statt sechs Lens-Agenten — ~6× weniger
-  LLM-Last bei nahezu gleichem Recall.
-- Jeder Agent **liest direkt seine zugewiesenen Dateien** — kein `find_files`/
-  `list_dir`, das sonst pro Agent das ganze Repo auflisten würde.
-- **Kein Judge im Coverage-Modus**: Chunks sehen verschiedene Dateien und sind
-  nicht vergleichbar — der (große) Judge-Call entfällt, Gleichgewichtung genügt;
-  die Qualität sichern Quote-Verifikation + adversariale Stufe.
-- **Managed Memory** hält nur die jüngsten Datei-Inhalte im Kontext; der Agent
-  arbeitet aus seinen Notizen.
+**Token-Effizienz** ist hier der Kern. Frühere Versionen ließen pro Chunk einen
+*agentischen Agenten* laufen, der Dateien einzeln per Tool-Call holte — bei jedem
+Call wurde der ganze wachsende Verlauf erneut gesendet (**O(n²)**, der große
+Token-Fresser). Jetzt:
+- **1 LLM-Call pro Chunk** statt ~20–35 — der Code wird genau einmal gesendet.
+- **Kein Judge im Coverage-Modus**: Chunks sehen verschiedene Dateien, sind nicht
+  vergleichbar — der (große) Judge-Call entfällt; Gleichgewichtung genügt, die
+  Qualität sichern Quote-Verifikation + adversariale Stufe.
+- **Adversariale Gegenprüfung = 1 Call pro Befund** (die Datei wird eingespeist,
+  kein Tool-Loop).
 - **429/5xx mit Backoff + Retry** (respektiert `Retry-After`), Parallelität
   gedrosselt (`concurrency`).
-- **Aufwand-Schätzung + Bestätigung** vor dem Lauf („293 Dateien → ~30 Agenten").
-- Fällt der Judge (Plan-Modus) aus, wird das Ergebnis trotzdem erstellt.
+- **Aufwand-Schätzung + Bestätigung** vor dem Lauf („293 Dateien → N LLM-Calls").
 
-So gehen weder Tokens noch Befunde verloren.
+> **Modellwahl spart am meisten Tokens.** Für die Subagenten **schlanke,
+> nicht-reasoning** Modelle wählen (z. B. `gpt-oss:20b/120b`, `gemma`, `qwen`,
+> `gemini-flash`). **Reasoning-/„pro"-Modelle wie `deepseek-v4-pro` erzeugen pro
+> Call massig internes Nachdenken** und sind für einen Bulk-Audit extrem
+> token-lastig — die spar dir für gezielte Einzelfragen auf.
 
-Konfigurierbar unter `[coverage]` in `models.toml`: `chunk_size` (Dateien pro
-Agent), `concurrency` (gleichzeitige Agenten — gegen 429), `max_rounds`
-(loop-until-dry) und `adjudicate` (adversariale Gegenprüfung; `false` spart
-Tokens). Wer maximalen Recall will und das Rate-Limit verträgt, dreht
-`chunk_size` runter, `max_rounds` und `concurrency` hoch.
+Konfigurierbar unter `[coverage]` in `models.toml`: `chunk_size` + `chunk_chars`
+(Größe pro Chunk), `concurrency` (gegen 429), `max_rounds` (loop-until-dry) und
+`adjudicate` (`false` spart die Gegenprüfung). Mehr Recall: `chunk_size`/
+`chunk_chars` runter, `max_rounds` hoch.
 
 **Ergebnis ist ein Bug-Report, kein Plan.** Im Code-Modus geben die Subagenten
 ihre **Befunde strukturiert** zurück (JSON: `Datei`, `Zeile`, Schweregrad,
@@ -230,34 +230,21 @@ klotho run "Erstelle einen Bugreport" --context /pfad/zum/projekt
 ```
 
 Während der Audit läuft, zeigt ein **Live-Dashboard** in Echtzeit den Fortschritt:
-aktuelle Runde, **abgedeckte Dateien** (X/Y), erledigte Tasks, gefundene Befunde
-und welche Lens gerade was findet — mit animiertem Klotho-Spinn-Motiv, damit klar
+aktuelle Runde, **abgedeckte Dateien** (X/Y), erledigte Chunks, gefundene Befunde
+und die Verteilung nach Kategorie — mit animiertem Klotho-Spinn-Motiv, damit klar
 ist: hier wird das ganze Repo durchkämmt.
 
-Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
-gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
-ausführen. Ballast (`venv*`, `node_modules`, `dist`, `__pycache__`, …) ist für
-die Werkzeuge unsichtbar.
+Sicherheit: Das Einlesen ist **strikt read-only und auf den Projektordner
+gesandboxt** — Klotho liest nur, schreibt oder führt nie aus. Ballast (`venv*`,
+`node_modules`, `dist*`, `build*`, `_internal`, `__pycache__`, …) wird gar nicht
+erst eingelesen.
 
-**Managed Memory — beliebig viele Dateien:** Klothos Agent behält nicht alle
-gelesenen Dateien im Kontext. Nach jedem `read_file` notiert das Modell seine
-Befunde, und der **rohe Dateiinhalt wird nach wenigen Schritten aus dem Kontext
-entfernt** (nur die jüngsten `KEEP_RAW_RESULTS=6` bleiben voll). Die Notizen
-bleiben. So läuft das Kontextfenster **nicht** voll — ein einzelner Agent kann
-*hunderte* Dateien durchgehen. Nur Zeit und Tokens begrenzen, nicht der Kontext.
-
-**Gründlichkeit (`[agent] max_iterations`, Standard 80):** So viele Werkzeug-
-Runden darf jeder Subagent machen. Höher = mehr Dateien gelesen = gründlicher,
-aber langsamer. Dank Managed Memory kannst du das für riesige Repos bedenkenlos
-hochsetzen (z. B. **150–300**). Jeder Teilreport endet mit einer Fußzeile:
-
-```
-_Untersucht: 15 Dateien gelesen, 22 Werkzeug-Aufrufe in 180s._
-```
-
-Weil jeder Chunk klein ist, deckt ein Agent seine Pflichtdateien zuverlässig ab;
-die Vollabdeckung des Repos entsteht aus der Summe aller Agenten und der
-automatischen Neuverteilung nicht gelesener Dateien.
+**Warum das skaliert:** Statt jede Datei einzeln per Tool-Call zu holen (und den
+Kontext bei jedem Schritt erneut zu senden), wird pro Chunk der Code **einmal**
+eingespeist und in **einem** Call analysiert. Der Kontext pro Call ist klein und
+konstant (durch `chunk_chars` begrenzt) — kein quadratisches Aufblähen, kein
+volllaufendes Kontextfenster. Ein riesiges Repo = einfach mehr Chunks, jeder mit
+genau einem günstigen Call.
 
 ## Sprache / Language (Deutsch · English)
 

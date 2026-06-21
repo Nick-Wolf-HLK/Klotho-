@@ -50,9 +50,10 @@ class OrchestratorConfig:
     rubric: RubricConfig = field(default_factory=RubricConfig)
     base_url: str = "http://127.0.0.1:11434/v1"
     agent_max_iterations: int = 40  # Schritte pro agentischem Subagenten
-    # Coverage-Audit (garantierte Repo-Abdeckung, ein Voll-Audit-Agent pro Chunk)
-    coverage_chunk_size: int = 10        # Dateien pro Agent
-    coverage_concurrency: int = 3        # gleichzeitig laufende Agenten (gegen Rate-Limit)
+    # Coverage-Audit (garantierte Repo-Abdeckung, ein Einspeisungs-Call pro Chunk)
+    coverage_chunk_size: int = 6         # Dateien pro Chunk (Obergrenze)
+    coverage_chunk_chars: int = 24000    # Zeichen-Budget pro Chunk (eingespeister Code)
+    coverage_concurrency: int = 3        # gleichzeitig laufende Calls (gegen Rate-Limit)
     coverage_max_rounds: int = 1         # volle Runden für loop-until-dry
     coverage_adjudicate: bool = True     # adversariale Gegenprüfung der Befunde
 
@@ -171,7 +172,8 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
         ])),
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
         agent_max_iterations=int(agent_raw.get("max_iterations", 40)),
-        coverage_chunk_size=int(cov_raw.get("chunk_size", 10)),
+        coverage_chunk_size=int(cov_raw.get("chunk_size", 6)),
+        coverage_chunk_chars=int(cov_raw.get("chunk_chars", 24000)),
         coverage_concurrency=int(cov_raw.get("concurrency", 3)),
         coverage_max_rounds=int(cov_raw.get("max_rounds", 1)),
         coverage_adjudicate=bool(cov_raw.get("adjudicate", True)),
@@ -218,8 +220,9 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append(f'max_iterations = {cfg.agent_max_iterations}  # Schritte pro agentischem Subagenten')
     lines.append("")
     lines.append("[coverage]")
-    lines.append(f'chunk_size = {cfg.coverage_chunk_size}    # Dateien pro Agent')
-    lines.append(f'concurrency = {cfg.coverage_concurrency}   # gleichzeitig laufende Agenten')
+    lines.append(f'chunk_size = {cfg.coverage_chunk_size}    # Dateien pro Chunk (Obergrenze)')
+    lines.append(f'chunk_chars = {cfg.coverage_chunk_chars}  # Zeichen-Budget pro Chunk')
+    lines.append(f'concurrency = {cfg.coverage_concurrency}   # gleichzeitig laufende Calls')
     lines.append(f'max_rounds = {cfg.coverage_max_rounds}    # volle Runden (loop-until-dry)')
     lines.append(f'adjudicate = {str(cfg.coverage_adjudicate).lower()}  # adversariale Gegenprüfung')
     lines.append("")

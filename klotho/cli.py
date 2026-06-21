@@ -91,8 +91,8 @@ def _run_pipeline(
                 ui.console, client, subagents, refine_prompt or prompt,
                 root=root,
                 chunk_size=cfg.coverage_chunk_size,
+                chunk_chars=cfg.coverage_chunk_chars,
                 max_concurrency=cfg.coverage_concurrency,
-                max_iterations=cfg.agent_max_iterations,
                 max_rounds=cfg.coverage_max_rounds,
             )
         )

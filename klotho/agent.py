@@ -112,6 +112,86 @@ def render_findings_text(findings: list[Finding]) -> str:
     return "\n".join(lines)
 
 
+INJECT_SYSTEM = (
+    "You are a senior code auditor. You are given the FULL SOURCE of several files (with line "
+    "numbers). Analyse every file and report real bugs.\n"
+    "CHECK for: (1) security — injection, auth gaps, secrets, path traversal, unsafe "
+    "eval/deserialization, weak crypto; (2) concurrency — races, missing locks/await, blocking "
+    "calls in async; (3) error handling — unhandled/swallowed exceptions, missing None/empty "
+    "checks; (4) resources — leaks, missing cleanup, unbounded memory/input, quadratic loops; "
+    "(5) validation — unvalidated input, off-by-one, boundary/overflow, bad indexes; (6) logic — "
+    "inverted conditions, wrong operators, contract violations, dead code.\n"
+    "Reply with a SINGLE JSON object and nothing else (no prose/fences):\n"
+    '{"findings":[{"file":"rel/path.py","line":42,"severity":"high","category":"bug",'
+    '"issue":"what is wrong + impact","code_quote":"EXACT source line, verbatim","fix":"concrete fix"}]}\n'
+    "RULES: code_quote MUST be copied character-for-character from the shown source — a program "
+    "checks it and DELETES findings that don't match; never paraphrase. Use the real file path and "
+    'line number. Report only genuine problems; {"findings":[]} is a valid honest answer — padding '
+    "with weak/invented findings hurts your score.\n"
+    "SEVERITY (be conservative, when unsure pick lower): critical = exploitable hole or guaranteed "
+    "crash/data-loss on normal input; high = clearly breaks a real feature or serious weakness; "
+    "medium = edge-condition bug or real risk; low = minor quality. Only critical/high if you can "
+    "point to the concrete mechanism in the quoted code."
+)
+
+# Zeichen-Obergrenze für den eingespeisten Code pro Datei (große Dateien kürzen).
+INJECT_MAX_FILE_CHARS = 24_000
+
+
+async def audit_files(
+    client: LLMClient,
+    sub: SubagentConfig,
+    prompt: str,
+    root: str,
+    files: list[str],
+    *,
+    timeout: Optional[float] = None,
+) -> SubagentResponse:
+    """Token-effizienter Audit per DIREKTER Code-Einspeisung: liest die Dateien
+    deterministisch (kein Tool-Loop) und macht GENAU EINEN LLM-Call. Der gesamte
+    Code wird einmal gesendet — nicht kumulativ wie im agentischen Loop."""
+    tools = CodeTools(root)
+    start = time.perf_counter()
+    blocks: list[str] = []
+    for f in files:
+        body = tools.read_file(f)            # zeilennummeriert, gesandboxt
+        if body.startswith("(keine Datei") or body.startswith("(kein Verzeichnis"):
+            continue
+        blocks.append(f"### FILE: {f}\n{body[:INJECT_MAX_FILE_CHARS]}")
+    code = "\n\n".join(blocks)
+    user = (
+        f"{prompt}\n\nAnalyse the following files and report all real bugs.\n\n{code}"
+    )
+    messages = [
+        {"role": "system", "content": INJECT_SYSTEM + " " + i18n.output_directive()},
+        {"role": "user", "content": user},
+    ]
+
+    def _elapsed() -> int:
+        return int((time.perf_counter() - start) * 1000)
+
+    try:
+        coro = client.chat(sub.model, messages, temperature=0.2)
+        result = await (asyncio.wait_for(coro, timeout) if timeout else coro)
+    except asyncio.TimeoutError:
+        return SubagentResponse(agent=sub.name, model=sub.model, response="",
+                                elapsed_ms=_elapsed(), error=f"Timeout nach {_elapsed()} ms")
+    except Exception as exc:
+        return SubagentResponse(agent=sub.name, model=sub.model, response="",
+                                elapsed_ms=_elapsed(), error=str(exc))
+
+    text = (result.text or "").strip()
+    if not text:
+        return SubagentResponse(agent=sub.name, model=sub.model, response="",
+                                elapsed_ms=_elapsed(), error="leere Antwort vom Modell")
+    findings = parse_findings(text)
+    response_text = render_findings_text(findings) if findings is not None else text
+    return SubagentResponse(
+        agent=sub.name, model=sub.model, response=response_text,
+        elapsed_ms=_elapsed(), findings=findings or [],
+    )
+
+
 def _clean_assistant(msg: dict) -> dict:
     """Assistant-Message ins erwartete Format bringen (content nie null)."""
     out = {"role": "assistant", "content": msg.get("content") or ""}

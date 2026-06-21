@@ -62,23 +62,32 @@ def test_chat_with_tools_uses_backoff(monkeypatch):
     assert msg["tool_calls"] == []
 
 
-def test_estimate_audit_single_agent_per_chunk():
-    est = coverage.estimate_audit(293, chunk_size=10, max_rounds=1)
-    assert est["chunks"] == 30
-    assert est["agents_per_round"] == 30        # EIN Agent pro Chunk (keine Lens-Explosion)
-    assert est["agents_total"] == 30
+def test_estimate_audit_one_call_per_chunk(tmp_path):
+    files = []
+    for i in range(20):
+        p = tmp_path / f"f{i}.py"
+        p.write_text("x = 1\n")
+        files.append(f"f{i}.py")
+    est = coverage.estimate_audit(files, str(tmp_path), max_files=5, max_chars=10_000, max_rounds=1)
+    assert est["files"] == 20
+    assert est["chunks"] == 4                    # 20 Dateien / 5 pro Chunk
+    assert est["calls_per_round"] == 4           # 1 Call pro Chunk (kein Loop)
+    assert est["calls_total"] == 4
 
 
-def test_estimate_audit_multi_lens_is_more():
-    est = coverage.estimate_audit(100, chunk_size=10, max_rounds=2, lenses=coverage.LENSES)
-    assert est["chunks"] == 10
-    assert est["agents_per_round"] == 60        # 10 × 6 Lenses
-    assert est["agents_total"] == 120           # × 2 Runden
+def test_estimate_audit_scales_with_rounds(tmp_path):
+    files = []
+    for i in range(10):
+        (tmp_path / f"f{i}.py").write_text("x = 1\n")
+        files.append(f"f{i}.py")
+    est = coverage.estimate_audit(files, str(tmp_path), max_files=5, max_chars=10_000, max_rounds=2)
+    assert est["chunks"] == 2
+    assert est["calls_total"] == 4               # 2 Chunks × 2 Runden
 
 
 def test_build_tasks_single_agent_default():
     tasks = coverage.build_tasks([["a.py"], ["b.py"]], ["m1", "m2"])
-    assert len(tasks) == 2                       # ein Voll-Audit-Agent pro Chunk
+    assert len(tasks) == 2                       # ein Audit pro Chunk
     assert all(t.lens is None for t in tasks)
 
 
