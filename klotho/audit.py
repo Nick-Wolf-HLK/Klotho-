@@ -178,6 +178,7 @@ async def build_verified_bug_report(
     root: str,
     *,
     adjudicate: bool = True,
+    adjudicate_concurrency: int = 4,
     timeout=None,
     on_progress=None,
 ) -> str:
@@ -192,7 +193,8 @@ async def build_verified_bug_report(
     if adjudicate and findings:
         from . import adjudicate as adj
         findings, refuted = await adj.adjudicate_findings(
-            client, model, findings, root, timeout=timeout, on_progress=on_progress,
+            client, model, findings, root, timeout=timeout,
+            max_concurrency=max(1, adjudicate_concurrency), on_progress=on_progress,
         )
         findings.sort(key=lambda x: (_SEV_RANK.get(x.severity, 3), x.file, x.line))
     return render_bug_report(findings, per_auditor, dropped, refuted)

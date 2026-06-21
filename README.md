@@ -76,7 +76,13 @@ klotho            # oder: orchestrator  (Alias, rückwärtskompatibel)
 ```
 
 Dann fragt es dich nacheinander:
-0. **Modelle automatisch wählen lassen?** (empfohlen) — ein Modell weist die
+0a. **Cloud oder lokal?** Entweder **komplett Cloud** (läuft parallel, schnell)
+    oder **komplett lokal** (läuft auf deinem Rechner). Bei *lokal* macht Klotho
+    einen **System-Check**: es liest deinen RAM und Ollamas Modellgrößen und
+    bietet **nur Modelle an, die in den Speicher passen** (zu große werden
+    ausgeblendet). Lokale Modelle laufen außerdem **seriell** (nacheinander),
+    damit der RAM nicht überläuft; Cloud-Modelle laufen parallel.
+0b. **Modelle automatisch wählen lassen?** (empfohlen) — ein Modell weist die
    Rollen anhand des Ollama-Katalogs zu: **code-starke, token-effiziente**
    Modelle für die Subagenten, ein neutrales/günstiges fürs Judging, ein fähiges
    fürs Synthetisieren. **Reasoning-/„pro"-Modelle** (z. B. `deepseek-*-pro`)

@@ -33,7 +33,59 @@ from .synthesizer import synthesize_plan
 console = Console()
 
 
-def _auto_select_models(available: list[str], base_url: str):
+def _ask_backend(available: list[str], base_url: str):
+    """Fragt: komplett Cloud oder komplett lokal. Liefert (mode, pool) oder None.
+    Im lokalen Modus wird per System-Check nur angeboten, was in den RAM passt."""
+    from . import model_select, sysinfo
+
+    cloud = [m for m in available if model_select.is_cloud(m)]
+    sizes = sysinfo.local_model_sizes(base_url)
+    local = [m for m in available if not model_select.is_cloud(m)]
+    if sizes:  # auf installierte Modelle eingrenzen, falls /api/tags antwortet
+        installed = [m for m in local if m in sizes or m.split(":")[0] in sizes]
+        local = installed or list(sizes.keys())
+
+    mode = questionary.select(
+        i18n.t("Cloud-Modelle oder lokale Modelle verwenden?",
+               "Use cloud models or local models?"),
+        choices=[
+            questionary.Choice(i18n.t("☁  Cloud  (parallel, schnell)",
+                                      "☁  Cloud  (parallel, fast)"), "cloud"),
+            questionary.Choice(i18n.t("💻 Lokal  (läuft auf diesem Rechner, seriell)",
+                                      "💻 Local  (runs on this machine, sequential)"), "local"),
+        ],
+        use_arrow_keys=True,
+    ).ask()
+    if mode is None:
+        return None
+
+    if mode == "cloud":
+        if not cloud:
+            console.print(i18n.t(
+                "[yellow]Keine Cloud-Modelle gefunden (eingeloggt? `ollama signin`).[/]",
+                "[yellow]No cloud models found (logged in? `ollama signin`).[/]"))
+            return ("cloud", [])
+        return ("cloud", cloud)
+
+    # lokal: RAM-Check
+    ram = sysinfo.total_ram_bytes()
+    runnable, too_big = sysinfo.runnable_local_models(local, sizes, ram)
+    if ram:
+        ui.klotho_say(i18n.t(
+            f"System-RAM: {sysinfo.fmt_gb(ram)} · {len(runnable)} lokale Modelle lauffähig"
+            + (f", {len(too_big)} zu groß (ausgeblendet)" if too_big else "")
+            + ". Lokale Modelle laufen [bold]seriell[/] (nacheinander), um den RAM zu schonen.",
+            f"System RAM: {sysinfo.fmt_gb(ram)} · {len(runnable)} local models fit"
+            + (f", {len(too_big)} too large (hidden)" if too_big else "")
+            + ". Local models run [bold]sequentially[/] to protect RAM."))
+    if too_big:
+        console.print(i18n.t(
+            f"[dim]Zu groß für {sysinfo.fmt_gb(ram)} RAM: {', '.join(too_big)}[/]",
+            f"[dim]Too large for {sysinfo.fmt_gb(ram)} RAM: {', '.join(too_big)}[/]"))
+    return ("local", runnable)
+
+
+def _auto_select_models(available: list[str], base_url: str, *, prefer_cloud: bool = True):
     """Bietet an, die Modelle automatisch wählen zu lassen (ein Modell weist die
     Rollen token-effizient zu). Liefert {orchestrator, judge, subagents} oder None
     (→ manuelle Auswahl)."""
@@ -46,16 +98,17 @@ def _auto_select_models(available: list[str], base_url: str):
     ).ask():
         return None
 
-    selector = model_select.heuristic_select(available)["orchestrator"]
+    selector = model_select.heuristic_select(available, prefer_cloud=prefer_cloud)["orchestrator"]
     client = LLMClient(base_url=base_url)
     with console.status(
         i18n.t(f"[cyan]{selector} wählt passende Modelle …[/]",
                f"[cyan]{selector} is picking models …[/]"), spinner="dots"):
         try:
             choice = asyncio.run(model_select.select_models(
-                client, selector, available, task="code audit / bug report"))
+                client, selector, available, task="code audit / bug report",
+                prefer_cloud=prefer_cloud))
         except Exception:
-            choice = model_select.heuristic_select(available)
+            choice = model_select.heuristic_select(available, prefer_cloud=prefer_cloud)
 
     body = (
         f"[bold]Orchestrator:[/] {choice['orchestrator']}\n"
@@ -290,7 +343,8 @@ def _run_pipeline(
                         f"[cyan]Adversarial review… {done}/{total} findings[/]"))
                 md = asyncio.run(audit.build_verified_bug_report(
                     client, synth_model, responses, report, root,
-                    adjudicate=cfg.coverage_adjudicate, on_progress=_prog))
+                    adjudicate=cfg.coverage_adjudicate,
+                    adjudicate_concurrency=cfg.coverage_concurrency, on_progress=_prog))
         else:
             # Fallback: kein Auditor lieferte strukturierte Befunde → LLM-Synthese aus Prosa.
             ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",
@@ -393,21 +447,34 @@ def start_interactive() -> None:
         console.print(Panel.fit(i18n.t("[bold]Neue Session[/]", "[bold]New session[/]"),
                                 border_style="blue"))
 
-        # 0. Optional: Modelle automatisch wählen lassen (token-effizient)
-        auto = _auto_select_models(available, base_url)
+        # 0a. Cloud oder lokal? (komplett, nicht gemischt) + System-Check bei lokal
+        backend = _ask_backend(available, base_url)
+        if backend is None:
+            console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
+            return
+        mode, pool = backend
+        if not pool:
+            console.print(i18n.t("[yellow]Keine passenden Modelle — zurück zum Start.[/]",
+                                 "[yellow]No suitable models — back to start.[/]"))
+            continue
+        # lokal → seriell (concurrency 1), sonst der konfigurierte Wert
+        concurrency = 1 if mode == "local" else base_cfg.coverage_concurrency
+
+        # 0b. Optional: Modelle automatisch wählen lassen (token-effizient)
+        auto = _auto_select_models(pool, base_url, prefer_cloud=(mode == "cloud"))
         if auto:
             orch_model = auto["orchestrator"]
             judge_model = auto["judge"]
             picked = auto["subagents"]
         else:
             # 1. Orchestrator-Modell wählen (Dropdown)
-            orch_model = _pick_orchestrator(available)
+            orch_model = _pick_orchestrator(pool)
             if not orch_model:
                 console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
                 return
 
             # 2. Judge-Modell wählen (Dropdown)
-            judge_model = _pick_judge(available)
+            judge_model = _pick_judge(pool)
             if not judge_model:
                 console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
                 return
@@ -416,7 +483,7 @@ def start_interactive() -> None:
             #    Eigene Retry-Schleife: leere Auswahl darf NICHT die ganze Session
             #    verwerfen (Orchestrator/Judge bleiben erhalten).
             while True:
-                picked = _pick_subagents(available)
+                picked = _pick_subagents(pool)
                 if picked is None:  # Esc / Ctrl+C → Session abbrechen
                     console.print(i18n.t("[dim]Abgebrochen.[/]", "[dim]Cancelled.[/]"))
                     return
@@ -461,6 +528,11 @@ def start_interactive() -> None:
             ],
             base_url=base_url,
             agent_max_iterations=base_cfg.agent_max_iterations,
+            coverage_chunk_size=base_cfg.coverage_chunk_size,
+            coverage_chunk_chars=base_cfg.coverage_chunk_chars,
+            coverage_concurrency=concurrency,        # lokal=1 (seriell), Cloud=Default
+            coverage_max_rounds=base_cfg.coverage_max_rounds,
+            coverage_adjudicate=base_cfg.coverage_adjudicate,
         )
 
         try:

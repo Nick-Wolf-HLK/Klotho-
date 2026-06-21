@@ -130,6 +130,7 @@ def _run_pipeline(
             md = asyncio.run(audit.build_verified_bug_report(
                 client, synth_model, responses, report, root,
                 adjudicate=cfg.coverage_adjudicate,
+                adjudicate_concurrency=cfg.coverage_concurrency,
                 on_progress=lambda d, t: ui.info(f"  adversarial review… {d}/{t}"),
             ))
         else:
