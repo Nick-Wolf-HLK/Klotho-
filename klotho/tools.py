@@ -22,6 +22,12 @@ class CodeTools:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
+        self._source_files: list[str] | None = None  # gecachte Dateiliste (lazy)
+
+    def _files(self) -> list[str]:
+        if self._source_files is None:
+            self._source_files = codebase.collect_source_files(self.root)
+        return self._source_files
 
     def _safe(self, rel: str) -> Path:
         rel = (rel or ".").strip()
@@ -42,6 +48,20 @@ class CodeTools:
                 continue
             out.append(name + ("/" if (d / name).is_dir() else ""))
         return "\n".join(out[:MAX_LIST]) or "(leer)"
+
+    def read_raw(self, path: str) -> str | None:
+        """Unveränderter Dateiinhalt (ohne Zeilennummern), sandboxed. Für die
+        Verifikation von Befunden gegen die echte Quelle. None, wenn nicht lesbar."""
+        try:
+            f = self._safe(path)
+        except ValueError:
+            return None
+        if not f.is_file():
+            return None
+        try:
+            return f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
 
     def read_file(self, path: str) -> str:
         f = self._safe(path)
@@ -87,9 +107,9 @@ class CodeTools:
     def find_files(self, glob: str = "*") -> str:
         from fnmatch import fnmatch
         out = []
-        for fe in codebase.collect_source_files(self.root):
-            if fnmatch(fe.relpath, glob) or fnmatch(Path(fe.relpath).name, glob):
-                out.append(fe.relpath)
+        for rel in self._files():
+            if fnmatch(rel, glob) or fnmatch(Path(rel).name, glob):
+                out.append(rel)
                 if len(out) >= MAX_FIND:
                     break
         return "\n".join(out) if out else "(keine Dateien)"

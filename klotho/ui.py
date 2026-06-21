@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
@@ -11,10 +10,6 @@ from . import i18n
 from .plan_schema import JudgeReport, MasterPlan, SubagentResponse
 
 console = Console()
-
-
-def banner(title: str) -> None:
-    console.print(Panel.fit(f"[bold cyan]{title}[/]"))
 
 
 def show_subagent_responses(responses: list[SubagentResponse]) -> None:
@@ -60,20 +55,6 @@ def show_master_plan(plan: MasterPlan) -> None:
 def klotho_say(msg: str) -> None:
     """Klotho spricht zum Nutzer — führend und erklärend."""
     console.print(f"[bold cyan]◈ Klotho[/] [dim]·[/] {msg}")
-
-
-def show_context_stats(res) -> None:
-    """Transparenz über eingespeisten Code (eingespeist/weggelassen/Tokens)."""
-    msg = (
-        f"[bold cyan]◈ Codebase[/] [dim]·[/] {len(res.collected)}/{res.total_source} "
-        f"Quelldateien eingespeist [dim]·[/] ~{res.tokens} tok"
-    )
-    if res.truncated:
-        msg += (
-            f" [dim]·[/] [yellow]{res.skipped} wegen Budget weggelassen[/] "
-            f"[dim](Budget erhöhen oder Ordner eingrenzen für mehr Abdeckung)[/]"
-        )
-    console.print(msg)
 
 
 def show_model_ranking(report) -> None:

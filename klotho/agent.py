@@ -14,7 +14,7 @@ from typing import Callable, Optional
 from . import i18n
 from .llm_client import LLMClient
 from .config import SubagentConfig
-from .plan_schema import SubagentResponse
+from .plan_schema import Finding, SubagentResponse
 from .tools import TOOL_SCHEMAS, CodeTools
 
 AGENT_SYSTEM = (
@@ -29,24 +29,99 @@ AGENT_SYSTEM = (
     "CRITICAL — MANAGED MEMORY: Your context is automatically trimmed to save space. After you "
     "read a file, the RAW file content will be removed from your context within a few steps. "
     "Therefore, IMMEDIATELY after each read_file, write a short note (1-3 sentences) capturing "
-    "what you found in that file (file path, line numbers, the issue) BEFORE moving on. Rely on "
-    "your running notes, not on the raw text — it will be gone. This lets you cover hundreds of "
-    "files without running out of context.\n\n"
-    "Reference exact file paths and line numbers in every finding. When finished, compile all your "
-    "notes into a final report as a normal assistant message with NO further tool calls.\n\n"
-    "If the task is to find bugs / logic errors / quality issues, report each finding as:\n"
-    "- file:line  · severity (critical/high/medium/low) · category (bug/logic/quality/security)\n"
-    "- what is wrong and its impact\n"
-    "- a SHORT QUOTE of the actual offending code as evidence\n"
-    "- a concrete fix\n"
-    "NEVER invent a finding. Every finding MUST be backed by code you actually read with read_file. "
-    "If you are not certain, label it '(unconfirmed)'. Quote the real line — do not paraphrase from memory."
+    "what you found in that file (file path, line numbers, the EXACT offending line copied "
+    "verbatim) BEFORE moving on. Rely on your running notes, not on the raw text — it will be gone.\n\n"
+    "=== FINAL OUTPUT — STRICT ===\n"
+    "When finished, your final message (NO further tool calls) MUST be a SINGLE JSON object and "
+    "nothing else — no prose, no markdown fences:\n"
+    '{"findings": [\n'
+    '  {"file": "relative/path.py", "line": 42, "severity": "high", "category": "bug",\n'
+    '   "issue": "what is wrong and its concrete impact",\n'
+    '   "code_quote": "the EXACT source line(s), copied verbatim — do NOT paraphrase",\n'
+    '   "fix": "concrete fix"}\n'
+    "]}\n\n"
+    "HARD RULES:\n"
+    "- `code_quote` MUST be an exact, character-for-character copy of a line you actually read. "
+    "It is checked against the real source by a program; if it does not match, your finding is "
+    "DELETED and you get no credit. Never reconstruct a line from memory.\n"
+    "- `file` must be the real relative path; `line` the real line number.\n"
+    "- Report ONLY genuine problems. An empty list {\"findings\": []} is a valid, honest answer — "
+    "padding the list with weak or invented findings hurts your score.\n\n"
+    "SEVERITY RUBRIC — be conservative, when in doubt pick the LOWER level:\n"
+    "- critical: an exploitable security hole OR a guaranteed crash / data loss on normal input. "
+    "You must be able to name the exact trigger from code you read.\n"
+    "- high: a clear bug that breaks a real feature for realistic input, or a serious security weakness.\n"
+    "- medium: a bug only under edge conditions, or a real correctness/robustness risk.\n"
+    "- low: minor quality, style, or maintainability issue.\n"
+    "Do NOT label something critical/high unless you can point to the concrete mechanism in the quoted code."
 )
 
 MAX_ITERATIONS = 60
 MAX_TOOL_RESULT_CHARS = 8000
 KEEP_RAW_RESULTS = 6  # so viele jüngste Tool-Ergebnisse bleiben voll im Kontext
 _EVICTED = "[Roh-Inhalt verworfen, um Kontext zu sparen — bereits gelesen; verlasse dich auf deine Notizen.]"
+
+
+_SEVERITIES = {"critical", "high", "medium", "low"}
+_CATEGORIES = {"bug", "logic", "quality", "security"}
+
+
+def _extract_json(text: str) -> str | None:
+    """Holt das äußerste JSON-Objekt aus einer Modellantwort (auch wenn das
+    Modell Code-Fences oder etwas Prosa drumherum gesetzt hat)."""
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    return text[start:end + 1]
+
+
+def parse_findings(content: str) -> list[Finding] | None:
+    """Parst die JSON-Befundliste der finalen Agent-Antwort. None, wenn das
+    Modell kein verwertbares JSON geliefert hat (→ Prosa-Fallback)."""
+    blob = _extract_json(content)
+    if blob is None:
+        return None
+    try:
+        data = json.loads(blob)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    raw = data.get("findings") if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        return None
+    out: list[Finding] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        sev = str(item.get("severity", "low")).lower().strip()
+        cat = str(item.get("category", "quality")).lower().strip()
+        try:
+            line = int(item.get("line", 0) or 0)
+        except (TypeError, ValueError):
+            line = 0
+        out.append(Finding(
+            file=str(item.get("file", "")).strip(),
+            line=line,
+            severity=sev if sev in _SEVERITIES else "low",
+            category=cat if cat in _CATEGORIES else "quality",
+            issue=str(item.get("issue", "")).strip(),
+            code_quote=str(item.get("code_quote", "")).strip(),
+            fix=str(item.get("fix", "")).strip(),
+        ))
+    return out
+
+
+def render_findings_text(findings: list[Finding]) -> str:
+    """Lesbare Kurzfassung der Befunde — für die Judge-Bewertung und die Vorschau."""
+    if not findings:
+        return i18n.t("Keine Befunde.", "No findings.")
+    lines = []
+    for f in findings:
+        loc = f"{f.file}:{f.line}" if f.line else f.file
+        lines.append(f"[{f.severity}/{f.category}] {loc} — {f.issue}")
+    return "\n".join(lines)
 
 
 def _clean_assistant(msg: dict) -> dict:
@@ -129,10 +204,15 @@ async def run_agentic_subagent(
                         elapsed_ms=_elapsed(),
                         error="leere Antwort vom Modell",
                     )
+                findings = parse_findings(content)
+                response_text = (
+                    render_findings_text(findings) if findings is not None else content
+                )
                 return SubagentResponse(
                     agent=sub.name, model=sub.model,
-                    response=content + _footer(hit_limit=False),
+                    response=response_text + _footer(hit_limit=False),
                     elapsed_ms=_elapsed(),
+                    findings=findings or [],
                 )
 
             for tc in tool_calls:
@@ -160,16 +240,20 @@ async def run_agentic_subagent(
         # Iterationslimit erreicht → letzten Report einfordern (ohne Tools)
         messages.append({
             "role": "user",
-            "content": "Schritt-Limit erreicht. Gib JETZT deinen finalen Report "
-                       "basierend auf dem bisher Untersuchten — ohne weitere Werkzeuge.",
+            "content": "Step limit reached. Output your final findings NOW based on what you have "
+                       "examined — as the single JSON object {\"findings\": [...]} specified above, "
+                       "with no further tool calls and no prose.",
         })
         result = await client.chat(sub.model, messages, temperature=0.3)
         text = (result.text or "").strip()
+        findings = parse_findings(text) if text else None
+        response_text = render_findings_text(findings) if findings is not None else text
         return SubagentResponse(
             agent=sub.name, model=sub.model,
-            response=(text + _footer(hit_limit=True)) if text else "",
+            response=(response_text + _footer(hit_limit=True)) if text else "",
             elapsed_ms=_elapsed(),
             error=None if text else "kein Report nach Schritt-Limit",
+            findings=findings or [],
         )
 
     except asyncio.TimeoutError:

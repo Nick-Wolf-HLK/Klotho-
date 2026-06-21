@@ -202,11 +202,17 @@ def _run_pipeline(
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
-        ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",
-                       f"Building consolidated bug report with {synth_model}…"))
-        md = asyncio.run(
-            audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
-        )
+        # Deterministisch aus verifizierten Befunden (jede Zeile gegen die Quelle geprüft).
+        ui.info(i18n.t("Verifiziere Befunde gegen den Quellcode…",
+                       "Verifying findings against the source…"))
+        md = audit.build_bug_report(responses, report, root)
+        if not md:
+            # Fallback: kein Auditor lieferte strukturierte Befunde → LLM-Synthese aus Prosa.
+            ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",
+                           f"Building consolidated bug report with {synth_model}…"))
+            md = asyncio.run(
+                audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
+            )
         ui.show_model_ranking(report)
         ui.show_bug_report(md)
         ui.success(i18n.t("Bug-Report fertig.", "Bug report done."))
@@ -275,7 +281,7 @@ def start_interactive() -> None:
     intro.play_intro(console)
 
     base_url = load_opencode_base_url() or "http://127.0.0.1:11434/v1"
-    base_cfg = load_config()  # context_budget/max_iterations (models.toml oder Defaults)
+    base_cfg = load_config()  # agent_max_iterations (models.toml oder Defaults)
 
     from . import cloud_registry
     if cloud_registry.cache_is_stale():
@@ -363,7 +369,6 @@ def start_interactive() -> None:
                 for i, m in enumerate(picked)
             ],
             base_url=base_url,
-            context_budget=base_cfg.context_budget,
             agent_max_iterations=base_cfg.agent_max_iterations,
         )
 

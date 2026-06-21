@@ -43,3 +43,32 @@ def test_evict_noop_when_few_results():
     agent._evict_old_tool_results(msgs)
     tools = [m for m in msgs if m["role"] == "tool"]
     assert not any(m["content"] == agent._EVICTED for m in tools)  # nichts verworfen
+
+
+def test_parse_findings_clean_json():
+    raw = '{"findings": [{"file": "a.py", "line": 12, "severity": "HIGH", ' \
+          '"category": "bug", "issue": "x", "code_quote": "foo()", "fix": "y"}]}'
+    findings = agent.parse_findings(raw)
+    assert findings is not None and len(findings) == 1
+    f = findings[0]
+    assert f.file == "a.py" and f.line == 12
+    assert f.severity == "high"          # normalisiert
+    assert f.confidence == "unconfirmed"  # erst Verifikation bestätigt
+
+
+def test_parse_findings_tolerates_fences_and_prose():
+    raw = "Here is my report:\n```json\n{\"findings\": [" \
+          "{\"file\": \"b.py\", \"line\": 1, \"code_quote\": \"q\"}]}\n```\nDone."
+    findings = agent.parse_findings(raw)
+    assert findings is not None and findings[0].file == "b.py"
+
+
+def test_parse_findings_returns_none_on_garbage():
+    assert agent.parse_findings("just some prose, no json at all") is None
+
+
+def test_parse_findings_clamps_bad_enum_values():
+    raw = '{"findings": [{"file": "a.py", "severity": "showstopper", "category": "weird", "code_quote": "z"}]}'
+    f = agent.parse_findings(raw)[0]
+    assert f.severity == "low"           # unbekannt → konservativ
+    assert f.category == "quality"

@@ -22,33 +22,22 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import subprocess
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 import httpx
 import uvicorn
 
-OPENCODE_CONFIG = Path.home() / ".opencode.json"
+from . import config
+
 OLLAMA_V1 = "http://127.0.0.1:11434/v1"
 
 app = FastAPI(title="klotho-proxy-shim")
 
 
 def _cloud_models() -> set[str]:
-    if not OPENCODE_CONFIG.exists():
-        return set()
-    try:
-        data = json.loads(OPENCODE_CONFIG.read_text())
-    except json.JSONDecodeError:
-        return set()
-    out: set[str] = set()
-    for provider in data.get("provider", {}).values():
-        for mid in (provider.get("models") or {}).keys():
-            out.add(mid)
-    return out
+    return set(config.load_opencode_models())
 
 
 async def _passthrough(request: Request, suffix: str) -> Any:

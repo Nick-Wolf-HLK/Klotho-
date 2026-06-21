@@ -113,10 +113,13 @@ def _run_pipeline(
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
-        ui.info(f"Building consolidated bug report with {synth_model}…")
-        md = asyncio.run(
-            audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
-        )
+        ui.info("Verifying findings against the source…")
+        md = audit.build_bug_report(responses, report, root)
+        if not md:
+            ui.info(f"Building consolidated bug report with {synth_model}…")
+            md = asyncio.run(
+                audit.synthesize_bug_report(client, synth_model, prompt, responses, report)
+            )
         ui.show_model_ranking(report)
         ui.show_bug_report(md)
         ui.success("Bug report done.")

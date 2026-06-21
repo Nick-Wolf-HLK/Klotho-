@@ -5,11 +5,155 @@ sondern einen fertigen Befund-Report zum Weitergeben oder Fixen.
 """
 from __future__ import annotations
 
-from typing import Optional
-
-from . import i18n
+from . import i18n, verify
 from .llm_client import LLMClient
-from .plan_schema import JudgeReport, SubagentResponse
+from .plan_schema import Finding, JudgeReport, SubagentResponse
+
+_SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+_SEV_LABEL = {
+    "critical": ("🔴", "Kritisch", "Critical"),
+    "high": ("🟠", "Hoch", "High"),
+    "medium": ("🟡", "Mittel", "Medium"),
+    "low": ("🔵", "Niedrig", "Low"),
+}
+
+
+def _merge_findings(
+    responses: list[SubagentResponse],
+    report: JudgeReport,
+    root: str,
+) -> tuple[list[Finding], dict[str, int], int]:
+    """Sammelt, verifiziert und dedupliziert die strukturierten Befunde aller
+    Auditoren. Liefert (verifizierte_dedup_Befunde, {Auditor: #Befunde}, #verworfen).
+
+    Dedup nach (Datei, korrigierte Zeile): Konsens mehrerer Auditoren erhöht die
+    Sicherheit; bei Konflikt gewinnt der höchste Schweregrad und der Text des
+    am höchsten gewichteten Auditors."""
+    weight_map = {v.agent: v.weight for v in report.verdicts}
+    per_auditor: dict[str, int] = {}
+    dropped_total = 0
+    # key -> (best_finding, best_weight, auditors:set)
+    merged: dict[tuple[str, int], tuple[Finding, float, set[str]]] = {}
+
+    for r in responses:
+        if not r.findings:
+            continue
+        verified, dropped = verify.verify_findings(r.findings, root)
+        dropped_total += dropped
+        per_auditor[r.agent] = len(verified)
+        w = weight_map.get(r.agent, 0.0)
+        for f in verified:
+            key = (f.file, f.line)
+            if key not in merged:
+                merged[key] = (f, w, {r.agent})
+                continue
+            best, best_w, auditors = merged[key]
+            auditors.add(r.agent)
+            # höchster Schweregrad gewinnt; bei Gleichstand der schwerere Text
+            if _SEV_RANK.get(f.severity, 3) < _SEV_RANK.get(best.severity, 3):
+                merged[key] = (f, max(best_w, w), auditors)
+            elif w > best_w:
+                merged[key] = (f, w, auditors)
+            else:
+                merged[key] = (best, best_w, auditors)
+
+    findings: list[Finding] = []
+    for f, _w, auditors in merged.values():
+        # Konsens mehrerer Auditoren ⇒ bestätigt; sonst bleibt verify-Status.
+        if len(auditors) >= 2:
+            f.confidence = "confirmed"
+        findings.append(f)
+    findings.sort(key=lambda x: (_SEV_RANK.get(x.severity, 3), x.file, x.line))
+    return findings, per_auditor, dropped_total
+
+
+def render_bug_report(
+    findings: list[Finding],
+    per_auditor: dict[str, int],
+    dropped: int,
+) -> str:
+    """Deterministischer Markdown-Bug-Report aus den verifizierten Befunden —
+    ohne weiteres LLM, daher keine Re-Halluzination."""
+    de = i18n.get_language() == "de"
+    counts = {s: 0 for s in _SEV_RANK}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+
+    title = "# Bug-Report" if de else "# Bug Report"
+    lines = [title, ""]
+    if de:
+        lines.append(
+            f"**{len(findings)}** verifizierte Befunde "
+            f"(🔴 {counts['critical']} · 🟠 {counts['high']} · "
+            f"🟡 {counts['medium']} · 🔵 {counts['low']}). "
+            f"Jeder Befund wurde gegen den echten Quellcode geprüft; "
+            f"{dropped} unbelegte/halluzinierte Behauptung(en) wurden verworfen."
+        )
+    else:
+        lines.append(
+            f"**{len(findings)}** verified findings "
+            f"(🔴 {counts['critical']} · 🟠 {counts['high']} · "
+            f"🟡 {counts['medium']} · 🔵 {counts['low']}). "
+            f"Every finding was checked against the real source; "
+            f"{dropped} unbacked/hallucinated claim(s) were dropped."
+        )
+    lines.append("")
+
+    if not findings:
+        lines.append(
+            "_Keine gegen den Quellcode belegbaren Befunde._" if de
+            else "_No findings could be backed against the source._"
+        )
+    cat_label = {
+        "bug": "Bug", "logic": "Logikfehler" if de else "Logic",
+        "quality": "Qualität" if de else "Quality",
+        "security": "Sicherheit" if de else "Security",
+    }
+    current_sev = None
+    for f in findings:
+        emoji, de_name, en_name = _SEV_LABEL.get(f.severity, ("🔵", "Niedrig", "Low"))
+        if f.severity != current_sev:
+            current_sev = f.severity
+            lines.append(f"## {emoji} {de_name if de else en_name}")
+            lines.append("")
+        unconf = ""
+        if f.confidence != "confirmed":
+            unconf = " _(unbestätigt — verifizieren)_" if de else " _(unconfirmed — verify)_"
+        lines.append(f"### {f.issue or (f.file)}{unconf}")
+        loc_label = "Datei:Zeile" if de else "File:Line"
+        lines.append(f"- **{loc_label}:** `{f.file}:{f.line}`")
+        lines.append(f"- **{'Kategorie' if de else 'Category'}:** {cat_label.get(f.category, f.category)}")
+        if f.code_quote:
+            lines.append(f"- **{'Beleg' if de else 'Evidence'}:**")
+            lines.append("  ```")
+            for q in f.code_quote.splitlines() or [f.code_quote]:
+                lines.append(f"  {q}")
+            lines.append("  ```")
+        if f.fix:
+            lines.append(f"- **Fix:** {f.fix}")
+        lines.append("")
+
+    investigated = ", ".join(f"{a}: {n}" for a, n in per_auditor.items())
+    if investigated:
+        foot = (f"_Auditoren (verifizierte Befunde): {investigated}._" if de
+                else f"_Auditors (verified findings): {investigated}._")
+        lines.append("---")
+        lines.append(foot)
+    return "\n".join(lines).strip()
+
+
+def build_bug_report(
+    responses: list[SubagentResponse],
+    report: JudgeReport,
+    root: str,
+) -> str:
+    """End-to-End: verifizieren → dedup → deterministisch rendern. Leerer String,
+    wenn KEIN Auditor strukturierte Befunde lieferte (dann LLM-Fallback nutzen)."""
+    if not any(r.findings for r in responses):
+        return ""
+    findings, per_auditor, dropped = _merge_findings(responses, report, root)
+    return render_bug_report(findings, per_auditor, dropped)
+
 
 AUDIT_SYNTH_SYSTEM = (
     "You merge several independent code-audit reports into ONE consolidated bug report. "

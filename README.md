@@ -154,13 +154,24 @@ relevanten Dateien lesen, iterativ. Kein „serviertes" Code-Stück, kein
 Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
 
 **Ergebnis ist ein Bug-Report, kein Plan.** Im Code-Modus geben die Subagenten
-konkrete **Befunde** zurück (Bugs, Logikfehler, Qualität, Sicherheit) — jeder mit
-`Datei:Zeile`, Schweregrad, Code-Beleg und Fix-Vorschlag. Der Synthesizer
-konsolidiert sie zu **einem** Bug-Report (dedupliziert, nach Schweregrad sortiert,
-gewichtet nach Judge-Score) und **speichert ihn als `klotho-bugreport-*.md`** —
-den du direkt an ein Fix-LLM weitergeben oder von Klotho fixen lassen kannst.
-Gegen Halluzination müssen Befunde mit einem echten Code-Zitat belegt sein;
-unsichere werden als „(unbestätigt)" markiert.
+ihre **Befunde strukturiert** zurück (JSON: `Datei`, `Zeile`, Schweregrad,
+Kategorie, Problem, **wörtliches Code-Zitat**, Fix). Diese werden zu **einem**
+Bug-Report konsolidiert (dedupliziert, nach Schweregrad sortiert) und als
+`klotho-bugreport-*.md` **gespeichert** — direkt weitergebbar an ein Fix-LLM oder
+von Klotho fixbar.
+
+**Anti-Halluzination — deterministische Verifikation:** Bevor ein Befund in den
+Report kommt, prüft Klotho ihn **gegen den echten Quellcode** (ohne weiteres LLM,
+daher keine Re-Halluzination): Das wörtliche Code-Zitat wird in der genannten
+Datei gesucht. Steht es **nirgends**, ist der Befund erfunden und wird
+**verworfen**; steht es an einer **anderen** Zeile, wird die Zeilennummer
+**korrigiert**. Der Report nennt offen, wie viele unbelegte Behauptungen
+herausgeflogen sind. Befunde ohne maschinell prüfbares Zitat bleiben erhalten,
+werden aber als „(unbestätigt — verifizieren)" markiert; ein Befund, den mehrere
+Auditoren unabhängig melden, gilt als bestätigt. Zusätzlich gibt eine **strenge
+Schweregrad-Rubrik** im Agent-Prompt vor, konservativ einzustufen (im Zweifel
+niedriger). Liefert ein Auditor ausnahmsweise nur Prosa statt JSON, fällt Klotho
+auf die LLM-gestützte Konsolidierung zurück.
 
 **Interaktiv** — starte Klotho einfach im Ordner deines Codes; es bietet den
 aktuellen Ordner zur Analyse an (nur bestätigen):

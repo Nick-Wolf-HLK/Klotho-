@@ -49,12 +49,7 @@ class OrchestratorConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     rubric: RubricConfig = field(default_factory=RubricConfig)
     base_url: str = "http://127.0.0.1:11434/v1"
-    context_budget: int = 60000  # Token-Budget für eingespeisten Code
     agent_max_iterations: int = 60  # Schritte pro agentischem Subagenten
-
-    @property
-    def subagent_models(self) -> list[str]:
-        return [s.model for s in sorted(self.subagents, key=lambda s: s.order)]
 
 
 def _load_opencode_raw() -> dict:
@@ -147,7 +142,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
     subs_raw = data.get("subagents", [])
     exec_raw = data.get("execution", {})
     rubric_raw = data.get("rubric", {})
-    context_raw = data.get("context", {})
     agent_raw = data.get("agent", {})
     subagents = [
         SubagentConfig(
@@ -170,7 +164,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
             "completeness", "feasibility", "originality", "depth"
         ])),
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
-        context_budget=int(context_raw.get("budget", 60000)),
         agent_max_iterations=int(agent_raw.get("max_iterations", 60)),
     )
 
@@ -210,9 +203,6 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append("")
     lines.append("[rubric]")
     lines.append(f'criteria = {[c for c in cfg.rubric.criteria]}')
-    lines.append("")
-    lines.append("[context]")
-    lines.append(f'budget = {cfg.context_budget}  # Token-Budget für eingespeisten Code')
     lines.append("")
     lines.append("[agent]")
     lines.append(f'max_iterations = {cfg.agent_max_iterations}  # Schritte pro agentischem Subagenten')

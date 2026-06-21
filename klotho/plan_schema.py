@@ -57,9 +57,22 @@ class JudgeReport(BaseModel):
     summary: str = ""
 
 
+class Finding(BaseModel):
+    """Ein einzelner, gegen den Quellcode prüfbarer Audit-Befund."""
+    file: str
+    line: int = 0
+    severity: str = "low"          # critical | high | medium | low
+    category: str = "quality"      # bug | logic | quality | security
+    issue: str = ""
+    code_quote: str = ""           # WÖRTLICHES Zitat — wird gegen die Quelle geprüft
+    fix: str = ""
+    confidence: str = "unconfirmed"  # confirmed (Zitat in Quelle gefunden) | unconfirmed
+
+
 class SubagentResponse(BaseModel):
     agent: str
     model: str
     response: str
     elapsed_ms: int = 0
     error: Optional[str] = None
+    findings: list[Finding] = Field(default_factory=list)
