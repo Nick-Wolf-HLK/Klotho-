@@ -175,10 +175,13 @@ def _run_pipeline(
 
     if root:
         responses = asyncio.run(
-            live.run_audit_with_dashboard(
-                console, client, subagents, prompt,
-                refine_prompt=refine_prompt, root=root,
+            live.run_coverage_with_dashboard(
+                console, client, subagents, refine_prompt or prompt,
+                root=root,
+                chunk_size=cfg.coverage_chunk_size,
+                max_concurrency=cfg.coverage_concurrency,
                 max_iterations=cfg.agent_max_iterations,
+                max_rounds=cfg.coverage_max_rounds,
             )
         )
     else:
@@ -202,11 +205,20 @@ def _run_pipeline(
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
-        # Deterministisch aus verifizierten Befunden (jede Zeile gegen die Quelle geprüft).
-        ui.info(i18n.t("Verifiziere Befunde gegen den Quellcode…",
-                       "Verifying findings against the source…"))
-        md = audit.build_bug_report(responses, report, root)
-        if not md:
+        if audit.has_structured_findings(responses):
+            # Zwei Stufen: deterministische Quote-Verifikation + adversariale
+            # Gegenprüfung jedes Befunds gegen den echten Code.
+            with console.status(
+                i18n.t("[cyan]Verifiziere & prüfe Befunde adversarial gegen den Quellcode…[/]",
+                       "[cyan]Verifying & adversarially reviewing findings against the source…[/]")
+            ) as status:
+                def _prog(done: int, total: int) -> None:
+                    status.update(i18n.t(
+                        f"[cyan]Adversariale Gegenprüfung… {done}/{total} Befunde[/]",
+                        f"[cyan]Adversarial review… {done}/{total} findings[/]"))
+                md = asyncio.run(audit.build_verified_bug_report(
+                    client, synth_model, responses, report, root, on_progress=_prog))
+        else:
             # Fallback: kein Auditor lieferte strukturierte Befunde → LLM-Synthese aus Prosa.
             ui.info(i18n.t(f"Erstelle konsolidierten Bug-Report mit {synth_model}…",
                            f"Building consolidated bug report with {synth_model}…"))

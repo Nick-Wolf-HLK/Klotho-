@@ -28,14 +28,16 @@ dry_run_default = false
 [rubric]
 criteria = ["completeness", "feasibility", "originality", "depth"]
 
-[context]
-# Token-Budget für eingespeisten Quellcode (Code-Einspeisung).
-# Klotho filtert Ballast (venv, node_modules, dist, …) und speist Quellcode
-# bis zu diesem Budget ein (kleine Dateien zuerst).
-budget = 60000
-
 [agent]
 # Schritte (Werkzeug-Runden) pro agentischem Subagenten, der den Projektordner
 # selbst durchsucht. Höher = gründlicher (mehr Dateien gelesen), aber langsamer
-# und mehr Tokens. Für riesige Repos hochsetzen (z. B. 100–150).
-max_iterations = 60
+# und mehr Tokens. Für riesige Repos hochsetzen (z. B. 150–300).
+max_iterations = 80
+
+[coverage]
+# Coverage-Audit: garantierte Abdeckung des GANZEN Repos × Analyse-Lenses,
+# selbstskalierend. Jede Datei wird mindestens einem Agenten zugewiesen, der sie
+# garantiert liest; nicht gelesene Dateien werden in Nachrunden neu verteilt.
+chunk_size = 15     # Dateien pro Agent (kleiner = mehr Agenten, gründlicher)
+concurrency = 6     # gleichzeitig laufende Agenten (gegen Überlastung/Timeouts)
+max_rounds = 2      # volle Runden für loop-until-dry (Abbruch, wenn nichts Neues)

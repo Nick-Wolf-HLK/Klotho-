@@ -158,6 +158,26 @@ def _evict_old_tool_results(messages: list[dict]) -> None:
             m["content"] = _EVICTED
 
 
+def _coverage_directive(prompt: str, lens: Optional[str], assigned_files: Optional[list[str]]) -> str:
+    """Hängt Lens-Fokus und Pflicht-Dateiliste an den Auftrag des Agenten an."""
+    out = prompt
+    if lens:
+        out += (
+            f"\n\nFOCUS FOR THIS PASS — look specifically for: {lens} "
+            "Still report any other serious bug you happen to notice, but spend your "
+            "attention on this focus."
+        )
+    if assigned_files:
+        listing = "\n".join(f"- {f}" for f in assigned_files)
+        out += (
+            "\n\nASSIGNED FILES — you MUST read EVERY one of these with read_file and "
+            "analyze it before you finish. Do not skip any; broad coverage of THESE files "
+            "is your primary duty. You may additionally read other files to trace data flow:\n"
+            f"{listing}"
+        )
+    return out
+
+
 async def run_agentic_subagent(
     client: LLMClient,
     sub: SubagentConfig,
@@ -167,11 +187,14 @@ async def run_agentic_subagent(
     max_iterations: int = MAX_ITERATIONS,
     timeout: Optional[float] = None,
     progress: Optional[Callable[[str, int, int], None]] = None,
+    lens: Optional[str] = None,
+    assigned_files: Optional[list[str]] = None,
+    read_sink: Optional[set[str]] = None,
 ) -> SubagentResponse:
     tools = CodeTools(root)
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM + " " + i18n.output_directive()},
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": _coverage_directive(prompt, lens, assigned_files)},
     ]
     start = time.perf_counter()
     files_read: set[str] = set()
@@ -225,6 +248,8 @@ async def run_agentic_subagent(
                 total_calls += 1
                 if name == "read_file" and args.get("path"):
                     files_read.add(args["path"])
+                    if read_sink is not None:
+                        read_sink.add(args["path"])
                 if progress:
                     progress(_activity(name, args), len(files_read), total_calls)
                 result = tools.dispatch(name, args)[:MAX_TOOL_RESULT_CHARS]

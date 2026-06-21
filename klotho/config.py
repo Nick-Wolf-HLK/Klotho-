@@ -49,7 +49,11 @@ class OrchestratorConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     rubric: RubricConfig = field(default_factory=RubricConfig)
     base_url: str = "http://127.0.0.1:11434/v1"
-    agent_max_iterations: int = 60  # Schritte pro agentischem Subagenten
+    agent_max_iterations: int = 80  # Schritte pro agentischem Subagenten
+    # Coverage-Audit (garantierte Repo-Abdeckung × Lenses, selbstskalierend)
+    coverage_chunk_size: int = 15        # Dateien pro Agent
+    coverage_concurrency: int = 6        # gleichzeitig laufende Agenten (Last begrenzen)
+    coverage_max_rounds: int = 2         # volle Runden für loop-until-dry
 
 
 def _load_opencode_raw() -> dict:
@@ -143,6 +147,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
     exec_raw = data.get("execution", {})
     rubric_raw = data.get("rubric", {})
     agent_raw = data.get("agent", {})
+    cov_raw = data.get("coverage", {})
     subagents = [
         SubagentConfig(
             name=s.get("name", s.get("model", "?")),
@@ -164,7 +169,10 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchestratorConfig:
             "completeness", "feasibility", "originality", "depth"
         ])),
         base_url=orch.get("base_url") or load_opencode_base_url() or "http://127.0.0.1:11434/v1",
-        agent_max_iterations=int(agent_raw.get("max_iterations", 60)),
+        agent_max_iterations=int(agent_raw.get("max_iterations", 80)),
+        coverage_chunk_size=int(cov_raw.get("chunk_size", 15)),
+        coverage_concurrency=int(cov_raw.get("concurrency", 6)),
+        coverage_max_rounds=int(cov_raw.get("max_rounds", 2)),
     )
 
 
@@ -206,6 +214,11 @@ def save_config(cfg: OrchestratorConfig, path: Path = DEFAULT_CONFIG_PATH) -> No
     lines.append("")
     lines.append("[agent]")
     lines.append(f'max_iterations = {cfg.agent_max_iterations}  # Schritte pro agentischem Subagenten')
+    lines.append("")
+    lines.append("[coverage]")
+    lines.append(f'chunk_size = {cfg.coverage_chunk_size}    # Dateien pro Agent')
+    lines.append(f'concurrency = {cfg.coverage_concurrency}   # gleichzeitig laufende Agenten')
+    lines.append(f'max_rounds = {cfg.coverage_max_rounds}    # volle Runden (loop-until-dry)')
     lines.append("")
     path.write_text("\n".join(lines))
 

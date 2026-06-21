@@ -33,7 +33,7 @@ def _merge_findings(
     per_auditor: dict[str, int] = {}
     dropped_total = 0
     # key -> (best_finding, best_weight, auditors:set)
-    merged: dict[tuple[str, int], tuple[Finding, float, set[str]]] = {}
+    merged: dict[tuple[str, str], tuple[Finding, float, set[str]]] = {}
 
     for r in responses:
         if not r.findings:
@@ -43,7 +43,11 @@ def _merge_findings(
         per_auditor[r.agent] = len(verified)
         w = weight_map.get(r.agent, 0.0)
         for f in verified:
-            key = (f.file, f.line)
+            # Dedup über (Datei, normalisiertes Code-Zitat): gleiche Quellzeile =
+            # ein Befund, auch wenn Auditoren verschiedene Zeilennummern melden.
+            # Ohne Zitat fällt der Schlüssel auf die Zeilennummer zurück.
+            quote_key = verify._norm(f.code_quote) or f"L{f.line}"
+            key = (f.file, quote_key)
             if key not in merged:
                 merged[key] = (f, w, {r.agent})
                 continue
@@ -71,6 +75,7 @@ def render_bug_report(
     findings: list[Finding],
     per_auditor: dict[str, int],
     dropped: int,
+    refuted: int = 0,
 ) -> str:
     """Deterministischer Markdown-Bug-Report aus den verifizierten Befunden —
     ohne weiteres LLM, daher keine Re-Halluzination."""
@@ -82,21 +87,27 @@ def render_bug_report(
     title = "# Bug-Report" if de else "# Bug Report"
     lines = [title, ""]
     if de:
-        lines.append(
+        summary = (
             f"**{len(findings)}** verifizierte Befunde "
             f"(🔴 {counts['critical']} · 🟠 {counts['high']} · "
             f"🟡 {counts['medium']} · 🔵 {counts['low']}). "
             f"Jeder Befund wurde gegen den echten Quellcode geprüft; "
-            f"{dropped} unbelegte/halluzinierte Behauptung(en) wurden verworfen."
+            f"{dropped} unbelegte/halluzinierte Behauptung(en) verworfen"
         )
+        summary += (f", {refuted} bei adversarialer Gegenprüfung widerlegt." if refuted
+                    else ".")
+        lines.append(summary)
     else:
-        lines.append(
+        summary = (
             f"**{len(findings)}** verified findings "
             f"(🔴 {counts['critical']} · 🟠 {counts['high']} · "
             f"🟡 {counts['medium']} · 🔵 {counts['low']}). "
             f"Every finding was checked against the real source; "
-            f"{dropped} unbacked/hallucinated claim(s) were dropped."
+            f"{dropped} unbacked/hallucinated claim(s) dropped"
         )
+        summary += (f", {refuted} refuted by adversarial review." if refuted
+                    else ".")
+        lines.append(summary)
     lines.append("")
 
     if not findings:
@@ -147,12 +158,44 @@ def build_bug_report(
     report: JudgeReport,
     root: str,
 ) -> str:
-    """End-to-End: verifizieren → dedup → deterministisch rendern. Leerer String,
-    wenn KEIN Auditor strukturierte Befunde lieferte (dann LLM-Fallback nutzen)."""
+    """Nur deterministisch: verifizieren → dedup → rendern (ohne adversariale
+    Stufe). Leerer String, wenn KEIN Auditor strukturierte Befunde lieferte."""
     if not any(r.findings for r in responses):
         return ""
     findings, per_auditor, dropped = _merge_findings(responses, report, root)
     return render_bug_report(findings, per_auditor, dropped)
+
+
+def has_structured_findings(responses: list[SubagentResponse]) -> bool:
+    return any(r.findings for r in responses)
+
+
+async def build_verified_bug_report(
+    client: LLMClient,
+    model: str,
+    responses: list[SubagentResponse],
+    report: JudgeReport,
+    root: str,
+    *,
+    adjudicate: bool = True,
+    timeout=None,
+    on_progress=None,
+) -> str:
+    """End-to-End mit zwei Stufen: deterministische Quote-Verifikation + Dedup,
+    danach (optional) adversariale Gegenprüfung jedes Befunds gegen den echten
+    Code. Leerer String, wenn KEIN Auditor strukturierte Befunde lieferte
+    (dann nutzt der Aufrufer die LLM-Synthese als Fallback)."""
+    if not has_structured_findings(responses):
+        return ""
+    findings, per_auditor, dropped = _merge_findings(responses, report, root)
+    refuted = 0
+    if adjudicate and findings:
+        from . import adjudicate as adj
+        findings, refuted = await adj.adjudicate_findings(
+            client, model, findings, root, timeout=timeout, on_progress=on_progress,
+        )
+        findings.sort(key=lambda x: (_SEV_RANK.get(x.severity, 3), x.file, x.line))
+    return render_bug_report(findings, per_auditor, dropped, refuted)
 
 
 AUDIT_SYNTH_SYSTEM = (

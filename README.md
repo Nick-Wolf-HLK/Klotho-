@@ -147,11 +147,20 @@ Run `klotho config` to set roles interactively (uses `questionary`).
 
 ## Agentische Code-Analyse → Bug-Report
 
-Gibst du einen **Projektordner** an, bekommt jeder Subagent **read-only
-Werkzeuge** (`list_dir`, `read_file`, `grep`, `find_files`) und **durchsucht den
-Ordner selbst** — wie ein Coding-Agent: erst auflisten/suchen, dann die
-relevanten Dateien lesen, iterativ. Kein „serviertes" Code-Stück, kein
-Token-Budget-Limit auf den Code — der Agent navigiert gezielt.
+Gibst du einen **Projektordner** an, fährt Klotho einen **Coverage-Audit**: Das
+ganze Repo wird **garantiert** durchsucht — nicht stichprobenartig. Die komplette
+Quelldateiliste wird in **Chunks** aufgeteilt, und jeder Chunk wird aus **sechs
+Analyse-Lenses** geprüft (Sicherheit, Concurrency, Fehlerbehandlung, Ressourcen,
+Validierung, Logik). Jeder Agent bekommt eine **Pflicht-Dateiliste** + read-only
+Werkzeuge (`list_dir`, `read_file`, `grep`, `find_files`) und **muss jede
+zugewiesene Datei lesen**. Nicht gelesene Dateien werden automatisch in
+Nachrunden neu verteilt — es werden so viele Agenten erzeugt, bis **jede Datei
+abgedeckt** ist (selbstskalierend mit der Repo-Größe). Optional laufen mehrere
+volle Runden, bis **keine neuen Bugs** mehr auftauchen (loop-until-dry).
+
+Konfigurierbar unter `[coverage]` in `models.toml`: `chunk_size` (Dateien pro
+Agent), `concurrency` (gleichzeitige Agenten — gegen Überlastung/Timeouts) und
+`max_rounds` (loop-until-dry).
 
 **Ergebnis ist ein Bug-Report, kein Plan.** Im Code-Modus geben die Subagenten
 ihre **Befunde strukturiert** zurück (JSON: `Datei`, `Zeile`, Schweregrad,
@@ -160,18 +169,31 @@ Bug-Report konsolidiert (dedupliziert, nach Schweregrad sortiert) und als
 `klotho-bugreport-*.md` **gespeichert** — direkt weitergebbar an ein Fix-LLM oder
 von Klotho fixbar.
 
-**Anti-Halluzination — deterministische Verifikation:** Bevor ein Befund in den
-Report kommt, prüft Klotho ihn **gegen den echten Quellcode** (ohne weiteres LLM,
-daher keine Re-Halluzination): Das wörtliche Code-Zitat wird in der genannten
-Datei gesucht. Steht es **nirgends**, ist der Befund erfunden und wird
-**verworfen**; steht es an einer **anderen** Zeile, wird die Zeilennummer
-**korrigiert**. Der Report nennt offen, wie viele unbelegte Behauptungen
-herausgeflogen sind. Befunde ohne maschinell prüfbares Zitat bleiben erhalten,
-werden aber als „(unbestätigt — verifizieren)" markiert; ein Befund, den mehrere
-Auditoren unabhängig melden, gilt als bestätigt. Zusätzlich gibt eine **strenge
-Schweregrad-Rubrik** im Agent-Prompt vor, konservativ einzustufen (im Zweifel
-niedriger). Liefert ein Auditor ausnahmsweise nur Prosa statt JSON, fällt Klotho
-auf die LLM-gestützte Konsolidierung zurück.
+**Zwei-Stufen-Verifikation gegen False Positives:**
+
+*Stufe 1 — deterministischer Quote-Check (ohne LLM):* Das wörtliche Code-Zitat
+wird in der genannten Datei gesucht. Steht es **nirgends**, ist der Befund
+erfunden und wird **verworfen**; steht es an einer **anderen** Zeile, wird die
+Zeilennummer **korrigiert**. Anschließend wird über `(Datei, Zitat)`
+**dedupliziert** — dieselbe Quellzeile zählt nur einmal, auch wenn mehrere
+Auditoren sie an unterschiedlichen Zeilen melden.
+
+*Stufe 2 — adversariale Gegenprüfung (LLM, skeptisch):* Jeden verbleibenden
+Befund prüft ein **skeptischer Reviewer** erneut gegen den echten Code (mit
+denselben read-only Werkzeugen, inkl. Datenfluss über Dateigrenzen). Er fängt
+die Klasse „Code stimmt, Schlussfolgerung falsch": ein Feld, das angeblich fehlt
+aber existiert; ein Check, der nur scheinbar invertiert ist; ein Default-Secret,
+das beim Start ersetzt wird. Klar **widerlegte** Befunde fliegen raus, mitigierte
+werden **herabgestuft** — im Zweifel bleibt ein Befund erhalten (nur eindeutig
+Widerlegtes wird verworfen), damit echte Funde nicht verloren gehen.
+
+Der Report nennt offen, wie viele Behauptungen in Stufe 1 (unbelegt) und Stufe 2
+(widerlegt) herausgeflogen sind. Eine **strenge Schweregrad-Rubrik** in beiden
+Stufen erzwingt konservative Einstufung (im Zweifel niedriger). Build-/
+Distributions-Artefakte (`dist*`, `build*`, `_internal`, …) werden vom Scan
+ausgeschlossen, damit eine Kopie des Quellcodes nicht als zweite Codebasis
+mitgezählt wird. Liefert ein Auditor ausnahmsweise nur Prosa statt JSON, fällt
+Klotho auf die LLM-gestützte Konsolidierung zurück.
 
 **Interaktiv** — starte Klotho einfach im Ordner deines Codes; es bietet den
 aktuellen Ordner zur Analyse an (nur bestätigen):
@@ -188,10 +210,10 @@ klotho run "Erstelle einen Bugreport" --context .                 # aktueller Or
 klotho run "Erstelle einen Bugreport" --context /pfad/zum/projekt
 ```
 
-Während die Subagenten suchen, zeigt ein **Live-Dashboard** in Echtzeit, was
-jeder gerade tut (welche Datei er liest/grept), wie viele Dateien er schon
-gelesen hat und wie lange es läuft — mit animiertem Klotho-Spinn-Motiv, damit
-klar ist: hier arbeitet etwas.
+Während der Audit läuft, zeigt ein **Live-Dashboard** in Echtzeit den Fortschritt:
+aktuelle Runde, **abgedeckte Dateien** (X/Y), erledigte Tasks, gefundene Befunde
+und welche Lens gerade was findet — mit animiertem Klotho-Spinn-Motiv, damit klar
+ist: hier wird das ganze Repo durchkämmt.
 
 Sicherheit: Die Werkzeuge sind **strikt read-only und auf den Projektordner
 gesandboxt** — Subagenten können lesen und suchen, niemals schreiben oder
@@ -205,18 +227,18 @@ entfernt** (nur die jüngsten `KEEP_RAW_RESULTS=6` bleiben voll). Die Notizen
 bleiben. So läuft das Kontextfenster **nicht** voll — ein einzelner Agent kann
 *hunderte* Dateien durchgehen. Nur Zeit und Tokens begrenzen, nicht der Kontext.
 
-**Gründlichkeit (`[agent] max_iterations`, Standard 60):** So viele Werkzeug-
+**Gründlichkeit (`[agent] max_iterations`, Standard 80):** So viele Werkzeug-
 Runden darf jeder Subagent machen. Höher = mehr Dateien gelesen = gründlicher,
 aber langsamer. Dank Managed Memory kannst du das für riesige Repos bedenkenlos
-hochsetzen (z. B. **150–300**). Jeder Report endet mit einer Fußzeile:
+hochsetzen (z. B. **150–300**). Jeder Teilreport endet mit einer Fußzeile:
 
 ```
-_Untersucht: 80 Dateien gelesen, 120 Werkzeug-Aufrufe in 640s._
+_Untersucht: 15 Dateien gelesen, 22 Werkzeug-Aufrufe in 180s._
 ```
 
-Statt alles einzuspeisen, holt sich jeder Agent gezielt die Dateien, die er
-braucht. (Die einfachere „Code-Einspeisung" existiert weiterhin als
-Bibliotheksfunktion in `klotho/codebase.py` für kleine Repos.)
+Weil jeder Chunk klein ist, deckt ein Agent seine Pflichtdateien zuverlässig ab;
+die Vollabdeckung des Repos entsteht aus der Summe aller Agenten und der
+automatischen Neuverteilung nicht gelesener Dateien.
 
 ## Sprache / Language (Deutsch · English)
 

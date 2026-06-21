@@ -87,10 +87,13 @@ def _run_pipeline(
 
     if root:
         responses = asyncio.run(
-            live.run_audit_with_dashboard(
-                ui.console, client, subagents, prompt,
-                refine_prompt=refine_prompt, root=root,
+            live.run_coverage_with_dashboard(
+                ui.console, client, subagents, refine_prompt or prompt,
+                root=root,
+                chunk_size=cfg.coverage_chunk_size,
+                max_concurrency=cfg.coverage_concurrency,
                 max_iterations=cfg.agent_max_iterations,
+                max_rounds=cfg.coverage_max_rounds,
             )
         )
     else:
@@ -113,9 +116,13 @@ def _run_pipeline(
 
     # Code-Modus → konsolidierter Bug-Report (kein Schritt-Plan).
     if root:
-        ui.info("Verifying findings against the source…")
-        md = audit.build_bug_report(responses, report, root)
-        if not md:
+        if audit.has_structured_findings(responses):
+            ui.info("Verifying & adversarially reviewing findings against the source…")
+            md = asyncio.run(audit.build_verified_bug_report(
+                client, synth_model, responses, report, root,
+                on_progress=lambda d, t: ui.info(f"  adversarial review… {d}/{t}"),
+            ))
+        else:
             ui.info(f"Building consolidated bug report with {synth_model}…")
             md = asyncio.run(
                 audit.synthesize_bug_report(client, synth_model, prompt, responses, report)

@@ -14,9 +14,13 @@ IGNORE_DIR_PATTERNS = (
     ".git", ".hg", ".svn",
     "venv", "venv-*", "*-venv", ".venv", "env", ".env", "virtualenv",
     "py3*", "python3*", "site-packages",          # eingebettete Interpreter/Libs
-    "node_modules", "bower_components", "vendor", "Pods",
+    "node_modules", "bower_components", "vendor", "Pods", "__pypackages__",
     "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".cache",
-    "dist", "build", "out", "target", ".next", ".nuxt", ".svelte-kit", ".gradle",
+    # Build-/Distributions-Artefakte: GLOBS, damit dist-x86, build-arm64 etc. auch
+    # erfasst werden (sonst wird eine KOPIE des Quellcodes als eigener Code gescannt).
+    "dist", "dist-*", "build", "build-*", "out", "target", "target-*",
+    ".next", ".nuxt", ".svelte-kit", ".gradle",
+    "_internal", "*.dist-info",          # PyInstaller-onedir / Wheel-Metadaten
     "*.egg-info", ".tox", ".idea", ".vscode", ".DS_Store",
 )
 

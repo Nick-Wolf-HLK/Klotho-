@@ -1,14 +1,14 @@
-"""Live-Dashboard für die agentische Audit-Phase.
+"""Live-Dashboard für den Coverage-Audit.
 
-Zeigt in Echtzeit, was jeder Subagent gerade durchsucht (Datei/grep), wie viele
-Dateien er schon gelesen hat und wie lange es läuft — mit einem animierten
-Klotho-Spinn-Motiv, damit klar ist: hier arbeitet etwas.
+Zeigt in Echtzeit, wie Klotho das ganze Repo durchkämmt: aktuelle Runde,
+abgedeckte Dateien, erledigte Tasks, gefundene Befunde und welche Analyse-Lens
+gerade was findet — mit einem animierten Spinn-Motiv, damit klar ist: hier
+arbeitet etwas Großes.
 """
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -17,19 +17,11 @@ from rich.table import Table
 from rich.text import Text
 
 from . import i18n
+from .coverage import LENSES
 
 _SPIN = "⣾⣽⣻⢿⡿⣟⣯⣷"          # Braille-Spinner
-_THREAD_W = 60                  # Breite des laufenden Fadens
-
-
-@dataclass
-class _AgentState:
-    name: str
-    model: str
-    status: str = "wartet"      # wartet | aktiv | fertig | fehler
-    activity: str = "…"
-    files: int = 0
-    calls: int = 0
+_THREAD_W = 58
+_BAR_W = 32
 
 
 def _fmt(secs: float) -> str:
@@ -38,10 +30,9 @@ def _fmt(secs: float) -> str:
 
 
 def _thread_line(frame: int) -> Text:
-    """Ein Faden, über den eine Spindel ◍ hin- und herwandert (Bounce)."""
     span = _THREAD_W - 1
     p = frame % (2 * span)
-    pos = p if p <= span else 2 * span - p          # Ping-Pong
+    pos = p if p <= span else 2 * span - p
     chars = ["─"] * _THREAD_W
     chars[pos] = "◍"
     line = Text("".join(chars), style="cyan")
@@ -49,109 +40,107 @@ def _thread_line(frame: int) -> Text:
     return line
 
 
-def _render(states: list[_AgentState], start: float, frame: int) -> Panel:
+def _bar(done: int, total: int, color: str) -> Text:
+    frac = (done / total) if total else 0.0
+    filled = int(round(frac * _BAR_W))
+    t = Text()
+    t.append("█" * filled, style=color)
+    t.append("░" * (_BAR_W - filled), style="dim")
+    t.append(f"  {done}/{total}", style="bold")
+    return t
+
+
+def _render(state, start: float, frame: int) -> Panel:
     spin = _SPIN[frame % len(_SPIN)]
     elapsed = time.perf_counter() - start
-    active = sum(1 for s in states if s.status == "aktiv")
-    done = sum(1 for s in states if s.status in ("fertig", "fehler"))
-    total_files = sum(s.files for s in states)
 
-    files_word = i18n.t("Dateien", "files")
     head = Text()
     head.append(f"{spin}  ", style="bold cyan")
-    head.append(i18n.t("Klotho spinnt den Faden", "Klotho is spinning the thread"), style="bold cyan")
-    head.append(
-        f"    {active} {i18n.t('aktiv', 'active')} · "
-        f"{done}/{len(states)} {i18n.t('fertig', 'done')} · "
-        f"{total_files} {files_word} · {_fmt(elapsed)}",
-        style="dim",
-    )
-
-    tbl = Table.grid(padding=(0, 2))
-    tbl.add_column(width=2)
-    tbl.add_column(min_width=18)
-    tbl.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
-    tbl.add_column(justify="right", min_width=18)
-    for s in states:
-        if s.status == "aktiv":
-            icon, act_style = Text(spin, style="cyan"), "white"
-            act = s.activity
-        elif s.status == "fertig":
-            icon, act_style = Text("✓", style="bold green"), "green"
-            act = i18n.t("fertig", "done")
-        elif s.status == "fehler":
-            icon, act_style = Text("✘", style="bold red"), "red"
-            act = s.activity
-        else:
-            icon, act_style = Text("◌", style="dim"), "dim"
-            act = i18n.t("wartet …", "waiting …")
-        tbl.add_row(
-            icon,
-            Text(s.name, style="bold"),
-            Text(act, style=act_style),
-            Text(f"{s.files} {files_word} · {s.calls} ⚙", style="yellow"),
+    head.append(i18n.t("Klotho durchkämmt das Repo", "Klotho is combing the repo"), style="bold cyan")
+    if state is not None:
+        head.append(
+            f"    {i18n.t('Runde', 'round')} {max(1, state.round)}/{state.max_rounds}"
+            f"  ·  {_fmt(elapsed)}",
+            style="dim",
         )
 
-    body = Group(head, Text(""), _thread_line(frame), Text(""), tbl)
-    return Panel(body, border_style="cyan",
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(justify="right", style="bold")
+    grid.add_column()
+    if state is not None:
+        grid.add_row(i18n.t("Dateien", "files"), _bar(state.files_covered, state.files_total, "green"))
+        grid.add_row(i18n.t("Tasks", "tasks"), _bar(state.tasks_done, state.tasks_total, "cyan"))
+        grid.add_row(i18n.t("Befunde", "findings"),
+                     Text(str(state.findings), style="bold yellow"))
+
+    # Lens-Verteilung
+    lens_line = Text()
+    if state is not None and state.lens_counts:
+        for lens in LENSES:
+            n = state.lens_counts.get(lens.key, 0)
+            if n:
+                lens_line.append(f"{i18n.t(lens.de, lens.en)} ", style="magenta")
+                lens_line.append(f"{n}  ", style="bold")
+
+    # Aktuell laufende Tasks (ein paar zeigen)
+    act = Table.grid(padding=(0, 2))
+    act.add_column(width=2)
+    act.add_column(min_width=20)
+    act.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
+    if state is not None:
+        for name, activity in list(state.activity.items())[:8]:
+            act.add_row(Text(spin, style="cyan"), Text(name, style="bold"),
+                        Text(activity, style="white"))
+
+    parts = [head, Text(""), _thread_line(frame), Text(""), grid]
+    if lens_line.plain:
+        parts += [Text(""), lens_line]
+    parts += [Text(""), act]
+    return Panel(Group(*parts), border_style="cyan",
                  title=i18n.t("[bold cyan]🧵 Code-Audit läuft[/]", "[bold cyan]🧵 Code audit running[/]"),
                  padding=(1, 3))
 
 
-async def run_audit_with_dashboard(
+async def run_coverage_with_dashboard(
     console: Console,
     client,
     subagents,
     prompt: str,
     *,
-    refine_prompt,
     root: str,
+    chunk_size: int,
+    max_concurrency: int,
     max_iterations: int,
+    max_rounds: int,
 ):
-    """Führt die agentischen Subagenten aus und zeigt dabei ein Live-Dashboard."""
-    from .subagent import run_subagents_parallel
+    """Führt den Coverage-Audit aus und zeigt dabei das Live-Dashboard."""
+    from . import coverage
 
-    ordered = sorted(subagents, key=lambda s: s.order)
-    states = {s.name: _AgentState(s.name, s.model) for s in ordered}
-    state_list = [states[s.name] for s in ordered]
+    latest = {"state": None}
 
-    def factory(name: str):
-        st = states[name]
-
-        def cb(activity: str, files: int, calls: int) -> None:
-            st.status = "aktiv"
-            st.activity = activity
-            st.files = files
-            st.calls = calls
-
-        return cb
+    def on_update(st) -> None:
+        latest["state"] = st
 
     start = time.perf_counter()
-    with Live(_render(state_list, start, 0), console=console,
+    with Live(_render(None, start, 0), console=console,
               refresh_per_second=12, transient=False) as live:
         async def animate() -> None:
             n = 0
             while True:
                 n += 1
-                live.update(_render(state_list, start, n))
+                live.update(_render(latest["state"], start, n))
                 await asyncio.sleep(0.08)
 
         anim = asyncio.create_task(animate())
         try:
-            results = await run_subagents_parallel(
-                client, ordered, prompt, refine_prompt=refine_prompt, root=root,
-                max_iterations=max_iterations, progress_factory=factory,
+            responses = await coverage.run_coverage_audit(
+                client, subagents, prompt, root,
+                chunk_size=chunk_size, max_concurrency=max_concurrency,
+                max_iterations=max_iterations, max_rounds=max_rounds,
+                on_update=on_update,
             )
         finally:
             anim.cancel()
+        live.update(_render(latest["state"], start, 0))
 
-        by_name = {r.agent: r for r in results}
-        for st in state_list:
-            r = by_name.get(st.name)
-            if r and r.error:
-                st.status, st.activity = "fehler", r.error[:48]
-            else:
-                st.status = "fertig"
-        live.update(_render(state_list, start, 0))
-
-    return results
+    return responses
